@@ -11,7 +11,7 @@ function App() {
     <>
       <h1>Welcome to the app</h1>
       <SignedOut>
-        <SignInButton mode="modal">Hello</SignInButton>
+        <SignInButton mode="modal">Login</SignInButton>
       </SignedOut>
 
       <SignedIn>
