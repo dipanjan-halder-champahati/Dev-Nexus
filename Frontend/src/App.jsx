@@ -5,7 +5,10 @@ import './App.css'
 import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton } from '@clerk/clerk-react'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const { isSignedIn, isLoaded } = useUser();
+
+  // this will get rid of the flickering effect
+  if (!isLoaded) return null;
 
   return (
     <>
@@ -19,7 +22,7 @@ function App() {
       </SignedIn>
       <UserButton/>
     </>
-  )
+  );
 }
 
 export default App;
