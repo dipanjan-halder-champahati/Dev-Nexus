@@ -1,3 +1,4 @@
+import { useRef, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import { Loader2Icon, PlayIcon, ChevronDownIcon } from "lucide-react";
 import { LANGUAGE_CONFIG } from "../data/problems";
@@ -10,6 +11,23 @@ function CodeEditorPanel({
   onCodeChange,
   onRunCode,
 }) {
+  // Keep a stable ref to onRunCode so the keybinding always calls the latest version
+  const runRef = useRef(onRunCode);
+  runRef.current = onRunCode;
+
+  const handleEditorMount = useCallback((editor, monaco) => {
+    // Ctrl+Enter / Cmd+Enter → Run Code
+    editor.addAction({
+      id: "run-code",
+      label: "Run Code",
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+      ],
+      run: () => runRef.current?.(),
+    });
+    editor.focus();
+  }, []);
+
   return (
     <>
       <style>{`
@@ -165,6 +183,7 @@ function CodeEditorPanel({
             language={LANGUAGE_CONFIG[selectedLanguage]?.monacoLang}
             value={code}
             onChange={onCodeChange}
+            onMount={handleEditorMount}
             theme="vs-dark"
             options={{
               fontSize: 14,

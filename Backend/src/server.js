@@ -6,6 +6,11 @@ import cors from "cors";
 import { inngest, functions } from "./lib/inngest.js";
 import { serve } from "inngest/express";
 import webhookRoute from "./routes/webhookRoute.js";
+import {clerkMiddleware} from '@clerk/express';
+import { protectRoute } from "./middleware/protectRoute.js";
+import chatRoutes from "./routes/chatRoutes.js";
+import codeRoute from "./routes/codeRoute.js";
+import sessionRoutes from "./routes/sessionRoute.js";
 
 const app = express();
 const __dirname = path.resolve();
@@ -27,10 +32,15 @@ app.use(
   })
 );
 
+app.use(clerkMiddleware()); // this adds auth field to re object
+
 // =====================
 // Inngest Route
 // =====================
 app.use("/api/inngest", serve({ client: inngest, functions }));
+app.use("/api/chat", chatRoutes);
+app.use("/api/sessions", sessionRoutes);
+app.use("/api/run-code", codeRoute);
 
 // =====================
 // Test Routes
@@ -38,6 +48,7 @@ app.use("/api/inngest", serve({ client: inngest, functions }));
 app.get("/health", (req, res) => {
   res.status(200).json({ message: "Hello World" });
 });
+
 
 // =====================
 // Manual Sync: Fetch all Clerk users and save to MongoDB

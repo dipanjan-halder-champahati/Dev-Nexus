@@ -7,9 +7,20 @@ import { executeCode } from "../lib/piston";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass } from "../lib/utils";
-import { Loader2Icon, LogOutIcon, PhoneOffIcon, UsersIcon, TagIcon, UserIcon } from "lucide-react";
+import {
+  Loader2Icon,
+  LogOutIcon,
+  PhoneOffIcon,
+  UsersIcon,
+  TagIcon,
+  UserIcon,
+  CopyIcon,
+  CheckIcon,
+  LinkIcon,
+} from "lucide-react";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 import OutputPanel from "../components/OutputPanel";
+import toast from "react-hot-toast";
 
 import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
@@ -46,6 +57,7 @@ function SessionPage() {
   const { user }   = useUser();
   const [output,    setOutput]    = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [copied,    setCopied]    = useState(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
   const joinSessionMutation = useJoinSession();
@@ -63,8 +75,13 @@ function SessionPage() {
     ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
     : null;
 
-  const [selectedLanguage, setSelectedLanguage] = useState("javascript");
+  const [selectedLanguage, setSelectedLanguage] = useState(session?.language || "javascript");
   const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
+
+  // Set language from session when it loads
+  useEffect(() => {
+    if (session?.language) setSelectedLanguage(session.language);
+  }, [session?.language]);
 
   useEffect(() => {
     if (!session || !user || loadingSession) return;
@@ -103,6 +120,52 @@ function SessionPage() {
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
   };
+
+  const handleCopyInviteLink = () => {
+    const link = `${window.location.origin}/session/${id}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      toast.success("Invite link copied!");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  /* ── Full-page loader while session is loading ── */
+  if (loadingSession) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#0d0e14",
+          color: "#e8eaf0",
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: "50%",
+            background: "rgba(108,79,246,.15)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Loader2Icon size={32} color="#a78bfa" className="spin" style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+        <p style={{ fontSize: "1.2rem", fontWeight: 800 }}>Joining session…</p>
+        <p style={{ fontSize: ".85rem", color: "rgba(232,234,240,.4)" }}>
+          Setting up your collaborative coding environment
+        </p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -338,10 +401,133 @@ function SessionPage() {
         /* Spinner */
         @keyframes spin { to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
+
+        /* ── Session top bar ── */
+        .session-topbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: .6rem 1.2rem;
+          background: #0a0b10;
+          border-bottom: 1px solid rgba(255,255,255,.06);
+          flex-shrink: 0;
+          gap: 1rem;
+        }
+        .session-topbar-left {
+          display: flex;
+          align-items: center;
+          gap: .75rem;
+          min-width: 0;
+        }
+        .session-topbar-name {
+          font-size: .9rem;
+          font-weight: 800;
+          color: #e8eaf0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .session-topbar-right {
+          display: flex;
+          align-items: center;
+          gap: .6rem;
+          flex-shrink: 0;
+        }
+        .topbar-participants {
+          display: flex;
+          align-items: center;
+          gap: .4rem;
+          padding: .35rem .75rem;
+          background: rgba(255,255,255,.04);
+          border: 1px solid rgba(255,255,255,.07);
+          border-radius: 8px;
+          font-size: .75rem;
+          font-weight: 600;
+          color: rgba(232,234,240,.5);
+        }
+        .topbar-participants .live-dot {
+          width: 6px; height: 6px;
+          border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 0 0 rgba(34,197,94,.5);
+          animation: activePulse 2s ease infinite;
+        }
+        @keyframes activePulse {
+          0%   { box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
+          70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+          100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
+        .copy-invite-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: .4rem;
+          padding: .4rem .85rem;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          border: none;
+          border-radius: 8px;
+          color: #fff;
+          font-size: .75rem;
+          font-weight: 700;
+          cursor: pointer;
+          box-shadow: 0 3px 12px rgba(99,102,241,.3);
+          transition: all .2s ease;
+        }
+        .copy-invite-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 18px rgba(99,102,241,.45);
+        }
+        .copy-invite-btn.copied {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          box-shadow: 0 3px 12px rgba(34,197,94,.3);
+        }
       `}</style>
 
       <div className="session-root">
         <Navbar />
+
+        {/* ── Session Top Bar ── */}
+        <div className="session-topbar">
+          <div className="session-topbar-left">
+            <span className="session-topbar-name">
+              {session?.name || session?.problem || "Coding Session"}
+            </span>
+            {session?.difficulty && <DiffBadge difficulty={session.difficulty} />}
+          </div>
+          <div className="session-topbar-right">
+            <div className="topbar-participants">
+              <span className="live-dot" />
+              <UsersIcon size={12} />
+              <span>
+                {session?.participant ? 2 : 1}/2
+              </span>
+              {session?.host?.name && (
+                <span style={{ color: "rgba(232,234,240,.35)", marginLeft: 4 }}>
+                  — {session.host.name}{session?.participant?.name ? `, ${session.participant.name}` : ""}
+                </span>
+              )}
+            </div>
+            <button
+              className={`copy-invite-btn${copied ? " copied" : ""}`}
+              onClick={handleCopyInviteLink}
+            >
+              {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
+              {copied ? "Copied!" : "Copy Invite Link"}
+            </button>
+            {isHost && session?.status === "active" && (
+              <button
+                onClick={handleEndSession}
+                disabled={endSessionMutation.isPending}
+                className="end-btn"
+              >
+                {endSessionMutation.isPending
+                  ? <Loader2Icon size={14} className="spin" />
+                  : <LogOutIcon size={14} />
+                }
+                End
+              </button>
+            )}
+          </div>
+        </div>
 
         <div style={{ flex: 1, overflow: "hidden" }}>
           <PanelGroup direction="horizontal">
@@ -361,19 +547,6 @@ function SessionPage() {
                         </div>
                         <div className="prob-badges">
                           {session?.difficulty && <DiffBadge difficulty={session.difficulty} />}
-                          {isHost && session?.status === "active" && (
-                            <button
-                              onClick={handleEndSession}
-                              disabled={endSessionMutation.isPending}
-                              className="end-btn"
-                            >
-                              {endSessionMutation.isPending
-                                ? <Loader2Icon size={14} className="spin" />
-                                : <LogOutIcon size={14} />
-                              }
-                              End
-                            </button>
-                          )}
                           {session?.status === "completed" && (
                             <span className="completed-badge">Completed</span>
                           )}
