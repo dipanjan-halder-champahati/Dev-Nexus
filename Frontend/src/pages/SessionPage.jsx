@@ -1,9 +1,14 @@
 import { useUser } from "@clerk/clerk-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
+import {
+  useEndSession,
+  useJoinSession,
+  useSessionById,
+} from "../hooks/useSessions";
 import { PROBLEMS } from "../data/problems";
 import { executeCode } from "../lib/piston";
+import { sessionApi } from "../api/sessions";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass } from "../lib/utils";
@@ -25,25 +30,43 @@ import toast from "react-hot-toast";
 import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
+import useSocket from "../hooks/useSocket";
 
 /* ─────────────── Difficulty colour map ─────────────── */
 const DIFF_STYLES = {
-  easy:   { color: "#34d399", bg: "rgba(52,211,153,.12)",  border: "rgba(52,211,153,.28)"  },
-  medium: { color: "#fbbf24", bg: "rgba(251,191,36,.12)",  border: "rgba(251,191,36,.28)"  },
-  hard:   { color: "#f87171", bg: "rgba(248,113,113,.12)", border: "rgba(248,113,113,.28)" },
+  easy: {
+    color: "#34d399",
+    bg: "rgba(52,211,153,.12)",
+    border: "rgba(52,211,153,.28)",
+  },
+  medium: {
+    color: "#fbbf24",
+    bg: "rgba(251,191,36,.12)",
+    border: "rgba(251,191,36,.28)",
+  },
+  hard: {
+    color: "#f87171",
+    bg: "rgba(248,113,113,.12)",
+    border: "rgba(248,113,113,.28)",
+  },
 };
 
 function DiffBadge({ difficulty }) {
   const key = (difficulty ?? "easy").toLowerCase();
-  const s   = DIFF_STYLES[key] ?? DIFF_STYLES.easy;
+  const s = DIFF_STYLES[key] ?? DIFF_STYLES.easy;
   return (
     <span
       style={{
-        display: "inline-flex", alignItems: "center",
+        display: "inline-flex",
+        alignItems: "center",
         padding: ".22rem .75rem",
         borderRadius: 999,
-        fontSize: ".72rem", fontWeight: 700, letterSpacing: ".06em",
-        color: s.color, background: s.bg, border: `1px solid ${s.border}`,
+        fontSize: ".72rem",
+        fontWeight: 700,
+        letterSpacing: ".06em",
+        color: s.color,
+        background: s.bg,
+        border: `1px solid ${s.border}`,
       }}
     >
       {key.charAt(0).toUpperCase() + key.slice(1)}
@@ -52,31 +75,53 @@ function DiffBadge({ difficulty }) {
 }
 
 function SessionPage() {
-  const navigate   = useNavigate();
-  const { id }     = useParams();
-  const { user }   = useUser();
-  const [output,    setOutput]    = useState(null);
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const { user } = useUser();
+  const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [copied,    setCopied]    = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [aiReview, setAiReview] = useState(null);
+  const [isReviewing, setIsReviewing] = useState(false);
 
-  const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
+  const {
+    data: sessionData,
+    isLoading: loadingSession,
+    refetch,
+  } = useSessionById(id);
   const joinSessionMutation = useJoinSession();
-  const endSessionMutation  = useEndSession();
+  const endSessionMutation = useEndSession();
 
-  const session       = sessionData?.session;
-  const isHost        = session?.host?.clerkId === user?.id;
+  const session = sessionData?.session;
+  const isHost = session?.host?.clerkId === user?.id;
   const isParticipant = session?.participant?.clerkId === user?.id;
 
-  const { call, channel, chatClient, isInitializingCall, streamClient } = useStreamClient(
-    session, loadingSession, isHost, isParticipant
-  );
+  const { call, channel, chatClient, isInitializingCall, streamClient } =
+    useStreamClient(session, loadingSession, isHost, isParticipant);
 
   const problemData = session?.problem
     ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
     : null;
 
-  const [selectedLanguage, setSelectedLanguage] = useState(session?.language || "javascript");
-  const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    session?.language || "javascript",
+  );
+  const [code, setCode] = useState(
+    problemData?.starterCode?.[selectedLanguage] || "",
+  );
+
+  const { emitCodeChange } = useSocket(
+    session?.callId,
+    useCallback((newCode) => setCode(newCode), []),
+  );
+
+  const handleCodeChange = useCallback(
+    (value) => {
+      setCode(value);
+      emitCodeChange(value);
+    },
+    [emitCodeChange],
+  );
 
   // Set language from session when it loads
   useEffect(() => {
@@ -111,13 +156,40 @@ function SessionPage() {
     setIsRunning(true);
     setOutput(null);
     const result = await executeCode(selectedLanguage, code);
+
+    // Compare actual output with expected output when available
+    const expected = problemData?.expectedOutput?.[selectedLanguage];
+    if (result.success && expected) {
+      result.matched = result.output?.trim() === expected.trim();
+    }
+
     setOutput(result);
     setIsRunning(false);
   };
 
+  const handleReviewCode = async () => {
+    setIsReviewing(true);
+    try {
+      const result = await sessionApi.reviewWithAI(code, selectedLanguage);
+      setAiReview(result);
+    } catch (err) {
+      toast.error(
+        err.response?.data?.error || "AI review failed. Please try again.",
+      );
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
   const handleEndSession = () => {
-    if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
-      endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
+    if (
+      confirm(
+        "Are you sure you want to end this session? All participants will be notified.",
+      )
+    ) {
+      endSessionMutation.mutate(id, {
+        onSuccess: () => navigate("/dashboard"),
+      });
     }
   };
 
@@ -156,7 +228,12 @@ function SessionPage() {
             justifyContent: "center",
           }}
         >
-          <Loader2Icon size={32} color="#a78bfa" className="spin" style={{ animation: "spin 1s linear infinite" }} />
+          <Loader2Icon
+            size={32}
+            color="#a78bfa"
+            className="spin"
+            style={{ animation: "spin 1s linear infinite" }}
+          />
         </div>
         <p style={{ fontSize: "1.2rem", fontWeight: 800 }}>Joining session…</p>
         <p style={{ fontSize: ".85rem", color: "rgba(232,234,240,.4)" }}>
@@ -491,18 +568,21 @@ function SessionPage() {
             <span className="session-topbar-name">
               {session?.name || session?.problem || "Coding Session"}
             </span>
-            {session?.difficulty && <DiffBadge difficulty={session.difficulty} />}
+            {session?.difficulty && (
+              <DiffBadge difficulty={session.difficulty} />
+            )}
           </div>
           <div className="session-topbar-right">
             <div className="topbar-participants">
               <span className="live-dot" />
               <UsersIcon size={12} />
-              <span>
-                {session?.participant ? 2 : 1}/2
-              </span>
+              <span>{session?.participant ? 2 : 1}/2</span>
               {session?.host?.name && (
                 <span style={{ color: "rgba(232,234,240,.35)", marginLeft: 4 }}>
-                  — {session.host.name}{session?.participant?.name ? `, ${session.participant.name}` : ""}
+                  — {session.host.name}
+                  {session?.participant?.name
+                    ? `, ${session.participant.name}`
+                    : ""}
                 </span>
               )}
             </div>
@@ -519,10 +599,11 @@ function SessionPage() {
                 disabled={endSessionMutation.isPending}
                 className="end-btn"
               >
-                {endSessionMutation.isPending
-                  ? <Loader2Icon size={14} className="spin" />
-                  : <LogOutIcon size={14} />
-                }
+                {endSessionMutation.isPending ? (
+                  <Loader2Icon size={14} className="spin" />
+                ) : (
+                  <LogOutIcon size={14} />
+                )}
                 End
               </button>
             )}
@@ -531,11 +612,9 @@ function SessionPage() {
 
         <div style={{ flex: 1, overflow: "hidden" }}>
           <PanelGroup direction="horizontal">
-
             {/* ── LEFT PANEL ── */}
             <Panel defaultSize={50} minSize={30}>
               <PanelGroup direction="vertical">
-
                 {/* Problem description */}
                 <Panel defaultSize={50} minSize={20}>
                   <div className="prob-pane">
@@ -543,10 +622,14 @@ function SessionPage() {
                     <div className="prob-header">
                       <div className="prob-header-top">
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <h1 className="prob-title">{session?.problem || "Loading..."}</h1>
+                          <h1 className="prob-title">
+                            {session?.problem || "Loading..."}
+                          </h1>
                         </div>
                         <div className="prob-badges">
-                          {session?.difficulty && <DiffBadge difficulty={session.difficulty} />}
+                          {session?.difficulty && (
+                            <DiffBadge difficulty={session.difficulty} />
+                          )}
                           {session?.status === "completed" && (
                             <span className="completed-badge">Completed</span>
                           )}
@@ -576,11 +659,21 @@ function SessionPage() {
                       {/* Description */}
                       {problemData?.description && (
                         <div className="content-block">
-                          <div className="content-block-header">Description</div>
+                          <div className="content-block-header">
+                            Description
+                          </div>
                           <div className="content-block-body">
-                            <p className="desc-text">{problemData.description.text}</p>
+                            <p className="desc-text">
+                              {problemData.description.text}
+                            </p>
                             {problemData.description.notes?.map((note, i) => (
-                              <p key={i} className="desc-text" style={{ marginTop: ".75rem" }}>{note}</p>
+                              <p
+                                key={i}
+                                className="desc-text"
+                                style={{ marginTop: ".75rem" }}
+                              >
+                                {note}
+                              </p>
                             ))}
                           </div>
                         </div>
@@ -590,7 +683,10 @@ function SessionPage() {
                       {problemData?.examples?.length > 0 && (
                         <div className="content-block">
                           <div className="content-block-header">Examples</div>
-                          <div className="content-block-body" style={{ paddingTop: ".5rem" }}>
+                          <div
+                            className="content-block-body"
+                            style={{ paddingTop: ".5rem" }}
+                          >
                             {problemData.examples.map((ex, i) => (
                               <div key={i} className="example-card">
                                 <div className="example-label">
@@ -603,12 +699,15 @@ function SessionPage() {
                                     <span className="io-val">{ex.input}</span>
                                   </div>
                                   <div className="io-row">
-                                    <span className="io-key output">Output:</span>
+                                    <span className="io-key output">
+                                      Output:
+                                    </span>
                                     <span className="io-val">{ex.output}</span>
                                   </div>
                                   {ex.explanation && (
                                     <div className="io-explanation">
-                                      <strong>Explanation:</strong> {ex.explanation}
+                                      <strong>Explanation:</strong>{" "}
+                                      {ex.explanation}
                                     </div>
                                   )}
                                 </div>
@@ -621,7 +720,9 @@ function SessionPage() {
                       {/* Constraints */}
                       {problemData?.constraints?.length > 0 && (
                         <div className="content-block">
-                          <div className="content-block-header">Constraints</div>
+                          <div className="content-block-header">
+                            Constraints
+                          </div>
                           <div className="content-block-body">
                             {problemData.constraints.map((c, i) => (
                               <div key={i} className="constraint-item">
@@ -646,16 +747,18 @@ function SessionPage() {
                         selectedLanguage={selectedLanguage}
                         code={code}
                         isRunning={isRunning}
+                        isReviewing={isReviewing}
                         onLanguageChange={handleLanguageChange}
-                        onCodeChange={(v) => setCode(v)}
+                        onCodeChange={handleCodeChange}
                         onRunCode={handleRunCode}
+                        onReviewCode={handleReviewCode}
                       />
                     </Panel>
 
                     <PanelResizeHandle className="rh-row" />
 
                     <Panel defaultSize={30} minSize={15}>
-                      <OutputPanel output={output} />
+                      <OutputPanel output={output} aiReview={aiReview} />
                     </Panel>
                   </PanelGroup>
                 </Panel>
@@ -674,10 +777,16 @@ function SessionPage() {
                         className="call-icon-wrap"
                         style={{ background: "rgba(108,79,246,.15)" }}
                       >
-                        <Loader2Icon size={32} color="#a78bfa" className="spin" />
+                        <Loader2Icon
+                          size={32}
+                          color="#a78bfa"
+                          className="spin"
+                        />
                       </div>
                       <div className="call-state-title">Connecting…</div>
-                      <div className="call-state-sub">Setting up your video call session</div>
+                      <div className="call-state-sub">
+                        Setting up your video call session
+                      </div>
                     </div>
                   </div>
                 ) : !streamClient || !call ? (
@@ -690,21 +799,26 @@ function SessionPage() {
                         <PhoneOffIcon size={32} color="#f87171" />
                       </div>
                       <div className="call-state-title">Connection Failed</div>
-                      <div className="call-state-sub">Unable to connect to the video call. Please try refreshing.</div>
+                      <div className="call-state-sub">
+                        Unable to connect to the video call. Please try
+                        refreshing.
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div style={{ height: "100%" }}>
                     <StreamVideo client={streamClient}>
                       <StreamCall call={call}>
-                        <VideoCallUI chatClient={chatClient} channel={channel} />
+                        <VideoCallUI
+                          chatClient={chatClient}
+                          channel={channel}
+                        />
                       </StreamCall>
                     </StreamVideo>
                   </div>
                 )}
               </div>
             </Panel>
-
           </PanelGroup>
         </div>
       </div>

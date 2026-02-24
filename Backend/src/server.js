@@ -1,4 +1,6 @@
 import express from "express";
+import http from "http";
+import { Server } from "socket.io";
 import { ENV } from "./lib/env.js";
 import path from "path";
 import { connectDB } from "./lib/db.js";
@@ -6,13 +8,25 @@ import cors from "cors";
 import { inngest, functions } from "./lib/inngest.js";
 import { serve } from "inngest/express";
 import webhookRoute from "./routes/webhookRoute.js";
-import {clerkMiddleware} from '@clerk/express';
+import { clerkMiddleware } from "@clerk/express";
 import { protectRoute } from "./middleware/protectRoute.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import codeRoute from "./routes/codeRoute.js";
 import sessionRoutes from "./routes/sessionRoute.js";
+import { setupSocket } from "./socket/socketHandler.js";
+import aiReviewRoute from "./routes/aiReviewRoute.js";
 
 const app = express();
+const httpServer = http.createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: ENV.CLIENT_URL,
+    credentials: true,
+  },
+});
+
+setupSocket(io);
 const __dirname = path.resolve();
 
 // =====================
@@ -29,7 +43,7 @@ app.use(
   cors({
     origin: ENV.CLIENT_URL,
     credentials: true,
-  })
+  }),
 );
 
 app.use(clerkMiddleware()); // this adds auth field to re object
@@ -41,6 +55,7 @@ app.use("/api/inngest", serve({ client: inngest, functions }));
 app.use("/api/chat", chatRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/run-code", codeRoute);
+app.use("/api/ai-review", aiReviewRoute);
 
 // =====================
 // Test Routes
@@ -48,7 +63,6 @@ app.use("/api/run-code", codeRoute);
 app.get("/health", (req, res) => {
   res.status(200).json({ message: "Hello World" });
 });
-
 
 // =====================
 // Manual Sync: Fetch all Clerk users and save to MongoDB
@@ -59,21 +73,28 @@ app.get("/api/sync-users", async (req, res) => {
     // Use dynamic import so we don't need @clerk/backend installed globally
     const clerkSecretKey = ENV.CLERK_SECRET_KEY;
     if (!clerkSecretKey) {
-      return res.status(500).json({ error: "CLERK_SECRET_KEY not set in .env" });
+      return res
+        .status(500)
+        .json({ error: "CLERK_SECRET_KEY not set in .env" });
     }
 
     // Fetch users from Clerk REST API directly
-    const response = await fetch("https://api.clerk.com/v1/users?limit=100&order_by=-created_at", {
-      headers: {
-        Authorization: `Bearer ${clerkSecretKey}`,
-        "Content-Type": "application/json",
+    const response = await fetch(
+      "https://api.clerk.com/v1/users?limit=100&order_by=-created_at",
+      {
+        headers: {
+          Authorization: `Bearer ${clerkSecretKey}`,
+          "Content-Type": "application/json",
+        },
       },
-    });
+    );
 
     if (!response.ok) {
       const errText = await response.text();
       console.error("❌ Clerk API error:", response.status, errText);
-      return res.status(500).json({ error: "Failed to fetch from Clerk API", details: errText });
+      return res
+        .status(500)
+        .json({ error: "Failed to fetch from Clerk API", details: errText });
     }
 
     const clerkUsers = await response.json();
@@ -93,7 +114,7 @@ app.get("/api/sync-users", async (req, res) => {
       const saved = await User.findOneAndUpdate(
         { clerkId: u.id },
         { clerkId: u.id, email, name, profileImage },
-        { upsert: true, new: true }
+        { upsert: true, new: true },
       );
 
       results.push({ clerkId: u.id, email, name, mongoId: saved._id });
@@ -131,7 +152,7 @@ const StartServer = async () => {
   try {
     await connectDB();
 
-    app.listen(port, "0.0.0.0", () => {
+    httpServer.listen(port, "0.0.0.0", () => {
       console.log(`Server is running on port ${port}`);
     });
   } catch (err) {
