@@ -74,13 +74,23 @@ function Navbar() {
           }}
         >
           {/* Logo */}
-          <Link to="/" className="nav-logo" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 12 }}>
+          <Link
+            to="/"
+            className="nav-logo"
+            style={{
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
             <div
               style={{
                 width: 40,
                 height: 40,
                 borderRadius: 12,
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%)",
+                background:
+                  "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -96,16 +106,24 @@ function Navbar() {
                   fontFamily: "'JetBrains Mono', monospace",
                   fontWeight: 700,
                   fontSize: 18,
-                  background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
+                  background:
+                    "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
                   lineHeight: 1.1,
                   letterSpacing: "-0.02em",
                 }}
               >
-                TalentIQ
+                DevNexus
               </span>
-              <span style={{ fontSize: 10, color: "#475569", fontWeight: 500, letterSpacing: "0.05em" }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "#475569",
+                  fontWeight: 500,
+                  letterSpacing: "0.05em",
+                }}
+              >
                 CODE TOGETHER
               </span>
             </div>

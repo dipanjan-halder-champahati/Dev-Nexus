@@ -2,19 +2,14 @@
  * Code Execution Controller
  * Proxies code execution requests to the Judge0 Community Edition API (sandboxed).
  * Never runs code directly on the server.
- * 
- * Note: Piston API is now whitelist-only (as of Feb 15, 2026).
- * Using Judge0 Community Edition (https://ce.judge0.com) as the free alternative.
  */
 
-// Judge0 Community Edition - Free tier, no authentication required
-// Correct domain: ce.judge0.com (note: no /api path)
 const JUDGE0_API = "https://ce.judge0.com";
 
 const LANGUAGE_MAP = {
-  javascript: { languageId: 63, ext: "js" },      // Node.js 18.15.0
-  python:     { languageId: 71, ext: "py" },      // Python 3.10.0
-  java:       { languageId: 62, ext: "java" },    // Java 15.0.2
+  javascript: 63,  // Node.js 18.15.0
+  python:     71,  // Python 3.10.0
+  java:       62,  // Java 15.0.2
 };
 
 // Safety limits
@@ -34,8 +29,8 @@ export async function runCode(req, res) {
       });
     }
 
-    const langConfig = LANGUAGE_MAP[language.toLowerCase()];
-    if (!langConfig) {
+    const languageId = LANGUAGE_MAP[language.toLowerCase()];
+    if (!languageId) {
       return res.status(400).json({
         output: null,
         error: `Unsupported language: ${language}. Supported: ${Object.keys(LANGUAGE_MAP).join(", ")}`,
@@ -49,18 +44,37 @@ export async function runCode(req, res) {
       });
     }
 
-    // ── Submit code to Judge0 ──
-    const submitRes = await fetch(`${JUDGE0_API}/submissions?wait=true`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        language_id: langConfig.languageId,
-        source_code: code,
-        // Limit execution time to 10 seconds
-        cpu_time_limit: 10,
-        memory_limit: 524288, // 512 MB
-      }),
-    });
+    // ── Submit code to Judge0 CE ──
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT_MS);
+
+    let submitRes;
+    try {
+      submitRes = await fetch(
+        `${JUDGE0_API}/submissions?base64_encoded=false&wait=true`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            language_id: languageId,
+            source_code: code,
+            cpu_time_limit: 10,
+            memory_limit: 524288, // 512 MB
+          }),
+        }
+      );
+    } catch (fetchErr) {
+      if (fetchErr.name === "AbortError") {
+        return res.status(200).json({
+          output: null,
+          error: "Code execution timed out. Make sure your code doesn't have infinite loops.",
+        });
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!submitRes.ok) {
       const errText = await submitRes.text();
@@ -74,43 +88,40 @@ export async function runCode(req, res) {
     const result = await submitRes.json();
 
     // Judge0 status codes:
-    // 1 = In Queue, 2 = Processing, 3 = Accepted, 4 = Wrong Answer,
-    // 5 = Time Limit, 6 = Compilation Error, 7 = Runtime Error, 8 = Execution Error
-    
+    // 3 = Accepted, 4 = Wrong Answer, 5 = Time Limit Exceeded,
+    // 6 = Compilation Error, 7-12 = Various runtime errors
     const statusId = result.status?.id;
-    let output = result.stdout ? Buffer.from(result.stdout, 'base64').toString('utf-8') : '';
-    const stderr = result.stderr ? Buffer.from(result.stderr, 'base64').toString('utf-8') : '';
-    const compileOutput = result.compile_output ? Buffer.from(result.compile_output, 'base64').toString('utf-8') : '';
+    const stdout = (result.stdout || "").slice(0, MAX_OUTPUT_LENGTH);
+    const stderr = (result.stderr || "").slice(0, MAX_OUTPUT_LENGTH);
+    const compileOutput = (result.compile_output || "").slice(0, MAX_OUTPUT_LENGTH);
 
-    // Handle errors based on status codes
+    // Compilation Error
     if (statusId === 6) {
-      // Compilation Error
       return res.status(200).json({
         output: null,
         error: compileOutput || "Compilation error",
       });
     }
 
-    if (statusId === 7) {
-      // Runtime Error - include both output and error
-      return res.status(200).json({
-        output: output.slice(0, MAX_OUTPUT_LENGTH) || null,
-        error: (stderr || "Runtime error").slice(0, MAX_OUTPUT_LENGTH),
-      });
-    }
-
+    // Time Limit Exceeded
     if (statusId === 5) {
-      // Time Limit Exceeded
       return res.status(200).json({
-        output: output.slice(0, MAX_OUTPUT_LENGTH) || null,
+        output: stdout || null,
         error: "Code execution timed out. Make sure your code doesn't have infinite loops.",
       });
     }
 
-    // statusId === 3 or 4 (Accepted or Wrong Answer - both successful execution)
-    // Return success with stdout output, ignoring stderr unless it's a true error
+    // Runtime Error (status 7-12)
+    if (statusId >= 7) {
+      return res.status(200).json({
+        output: stdout || null,
+        error: stderr || "Runtime error",
+      });
+    }
+
+    // Success (status 3 = Accepted, 4 = Wrong Answer — both ran successfully)
     return res.status(200).json({
-      output: output.slice(0, MAX_OUTPUT_LENGTH) || "No output",
+      output: stdout || "No output",
       error: null,
     });
   } catch (err) {

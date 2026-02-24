@@ -32,4 +32,8 @@ export const sessionApi = {
     const response = await axiosInstance.get(`/chat/token`);
     return response.data;
   },
+  reviewWithAI: async (code, language) => {
+    const response = await axiosInstance.post("/ai-review", { code, language });
+    return response.data;
+  },
 };

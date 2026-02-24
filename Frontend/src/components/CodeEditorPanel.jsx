@@ -1,15 +1,22 @@
 import { useRef, useCallback } from "react";
 import Editor from "@monaco-editor/react";
-import { Loader2Icon, PlayIcon, ChevronDownIcon } from "lucide-react";
+import {
+  Loader2Icon,
+  PlayIcon,
+  ChevronDownIcon,
+  SparklesIcon,
+} from "lucide-react";
 import { LANGUAGE_CONFIG } from "../data/problems";
 
 function CodeEditorPanel({
   selectedLanguage,
   code,
   isRunning,
+  isReviewing,
   onLanguageChange,
   onCodeChange,
   onRunCode,
+  onReviewCode,
 }) {
   // Keep a stable ref to onRunCode so the keybinding always calls the latest version
   const runRef = useRef(onRunCode);
@@ -20,9 +27,7 @@ function CodeEditorPanel({
     editor.addAction({
       id: "run-code",
       label: "Run Code",
-      keybindings: [
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-      ],
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
       run: () => runRef.current?.(),
     });
     editor.focus();
@@ -93,6 +98,31 @@ function CodeEditorPanel({
           cursor: not-allowed;
           transform: none;
         }
+        .review-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 18px;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          border: none;
+          border-radius: 8px;
+          color: #fff;
+          font-size: 13px;
+          font-weight: 700;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          cursor: pointer;
+          box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+          transition: all 0.2s ease;
+        }
+        .review-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(99,102,241,0.45);
+        }
+        .review-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Editor window chrome */
@@ -146,7 +176,11 @@ function CodeEditorPanel({
               style={{ width: 22, height: 22, borderRadius: 4 }}
             />
             <div style={{ position: "relative" }}>
-              <select className="lang-select" value={selectedLanguage} onChange={onLanguageChange}>
+              <select
+                className="lang-select"
+                value={selectedLanguage}
+                onChange={onLanguageChange}
+              >
                 {Object.entries(LANGUAGE_CONFIG).map(([key, lang]) => (
                   <option key={key} value={key}>
                     {lang.name}
@@ -156,24 +190,59 @@ function CodeEditorPanel({
               <ChevronDownIcon
                 size={13}
                 color="#64748b"
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  pointerEvents: "none",
+                }}
               />
             </div>
           </div>
 
-          <button className="run-btn" disabled={isRunning} onClick={onRunCode}>
-            {isRunning ? (
-              <>
-                <Loader2Icon size={14} style={{ animation: "spin 1s linear infinite" }} />
-                Running...
-              </>
-            ) : (
-              <>
-                <PlayIcon size={14} />
-                Run Code
-              </>
-            )}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              className="run-btn"
+              disabled={isRunning}
+              onClick={onRunCode}
+            >
+              {isRunning ? (
+                <>
+                  <Loader2Icon
+                    size={14}
+                    style={{ animation: "spin 1s linear infinite" }}
+                  />
+                  Running...
+                </>
+              ) : (
+                <>
+                  <PlayIcon size={14} />
+                  Run Code
+                </>
+              )}
+            </button>
+            <button
+              className="review-btn"
+              disabled={isReviewing}
+              onClick={onReviewCode}
+            >
+              {isReviewing ? (
+                <>
+                  <Loader2Icon
+                    size={14}
+                    style={{ animation: "spin 1s linear infinite" }}
+                  />
+                  Reviewing...
+                </>
+              ) : (
+                <>
+                  <SparklesIcon size={14} />
+                  Review with AI
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Editor */}
