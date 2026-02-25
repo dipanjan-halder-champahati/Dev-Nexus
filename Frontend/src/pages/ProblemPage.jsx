@@ -8,6 +8,7 @@ import ProblemDescription from "../components/ProblemDescription";
 import OutputPanel from "../components/OutputPanel";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 import { executeCode } from "../lib/piston";
+import { sessionApi } from "../api/sessions";
 
 import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
@@ -18,9 +19,13 @@ function ProblemPage() {
 
   const [currentProblemId, setCurrentProblemId] = useState("two-sum");
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
-  const [code, setCode] = useState(PROBLEMS[currentProblemId].starterCode.javascript);
+  const [code, setCode] = useState(
+    PROBLEMS[currentProblemId].starterCode.javascript,
+  );
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [aiReview, setAiReview] = useState(null);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   const currentProblem = PROBLEMS[currentProblemId];
 
@@ -39,7 +44,8 @@ function ProblemPage() {
     setOutput(null);
   };
 
-  const handleProblemChange = (newProblemId) => navigate(`/problem/${newProblemId}`);
+  const handleProblemChange = (newProblemId) =>
+    navigate(`/problem/${newProblemId}`);
 
   const triggerConfetti = () => {
     confetti({ particleCount: 80, spread: 250, origin: { x: 0.2, y: 0.6 } });
@@ -51,10 +57,11 @@ function ProblemPage() {
       .trim()
       .split("\n")
       .map((line) =>
-        line.trim()
+        line
+          .trim()
           .replace(/\[\s+/g, "[")
           .replace(/\s+\]/g, "]")
-          .replace(/\s*,\s*/g, ",")
+          .replace(/\s*,\s*/g, ","),
       )
       .filter((line) => line.length > 0)
       .join("\n");
@@ -79,6 +86,20 @@ function ProblemPage() {
       }
     } else {
       toast.error("Code execution failed!");
+    }
+  };
+
+  const handleReviewCode = async () => {
+    setIsReviewing(true);
+    try {
+      const result = await sessionApi.reviewWithAI(code, selectedLanguage);
+      setAiReview(result);
+    } catch (err) {
+      toast.error(
+        err.response?.data?.error || "AI review failed. Please try again.",
+      );
+    } finally {
+      setIsReviewing(false);
     }
   };
 
@@ -151,16 +172,18 @@ function ProblemPage() {
                     selectedLanguage={selectedLanguage}
                     code={code}
                     isRunning={isRunning}
+                    isReviewing={isReviewing}
                     onLanguageChange={handleLanguageChange}
                     onCodeChange={setCode}
                     onRunCode={handleRunCode}
+                    onReviewCode={handleReviewCode}
                   />
                 </Panel>
 
                 <PanelResizeHandle className="resize-row" />
 
                 <Panel defaultSize={30} minSize={20}>
-                  <OutputPanel output={output} />
+                  <OutputPanel output={output} aiReview={aiReview} />
                 </Panel>
               </PanelGroup>
             </Panel>
