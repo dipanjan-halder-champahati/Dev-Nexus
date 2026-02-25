@@ -242,3 +242,35 @@ export async function endSession(req, res) {
     res.status(500).json({ message: error.message || "Internal Server Error" });
   }
 }
+
+/**
+ * Save code for a session (auto-save from frontend).
+ * Both host and participant can save.
+ */
+export async function saveCode(req, res) {
+  try {
+    const { id } = req.params;
+    const { code, language } = req.body;
+    const userId = req.user._id;
+
+    const session = await Session.findById(id);
+    if (!session) return res.status(404).json({ message: "Session not found" });
+
+    // Only session members can save
+    const isHost = session.host.toString() === userId.toString();
+    const isParticipant =
+      session.participant && session.participant.toString() === userId.toString();
+    if (!isHost && !isParticipant) {
+      return res.status(403).json({ message: "Only session members can save code" });
+    }
+
+    session.code = code ?? session.code;
+    if (language) session.language = language;
+    await session.save();
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error in saveCode controller:", error.message);
+    res.status(500).json({ message: error.message || "Internal Server Error" });
+  }
+}

@@ -40,6 +40,11 @@ const sessionSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    // Persisted code state — auto-saved from the client
+    code: {
+      type: String,
+      default: '',
+    },
     status: {
       type: String,
       enum: ['active', 'completed'],

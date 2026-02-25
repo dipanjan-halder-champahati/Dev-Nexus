@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, memo } from "react";
 import Editor from "@monaco-editor/react";
 import { Loader2Icon, PlayIcon, ChevronDownIcon, BrainCircuitIcon } from "lucide-react";
 import { LANGUAGE_CONFIG } from "../data/problems";
@@ -294,4 +294,4 @@ function CodeEditorPanel({
   );
 }
 
-export default CodeEditorPanel;
+export default memo(CodeEditorPanel);

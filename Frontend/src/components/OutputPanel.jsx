@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, memo } from "react";
 import { TerminalIcon, CheckCircleIcon, XCircleIcon, ClockIcon, AlertCircleIcon, BrainCircuitIcon } from "lucide-react";
 
 function OutputPanel({ output, aiReview }) {
@@ -373,4 +373,4 @@ function OutputPanel({ output, aiReview }) {
   );
 }
 
-export default OutputPanel;
+export default memo(OutputPanel);

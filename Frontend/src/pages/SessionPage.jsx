@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/clerk-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   useEndSession,
@@ -24,6 +24,7 @@ import {
   LinkIcon,
   FileTextIcon,
   BookOpenIcon,
+  AlertTriangleIcon,
 } from "lucide-react";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 import OutputPanel from "../components/OutputPanel";
@@ -91,6 +92,7 @@ function SessionPage() {
   const {
     data: sessionData,
     isLoading: loadingSession,
+    error: sessionError,
     refetch,
   } = useSessionById(id);
   const joinSessionMutation = useJoinSession();
@@ -103,34 +105,108 @@ function SessionPage() {
   const { call, channel, chatClient, isInitializingCall, streamClient } =
     useStreamClient(session, loadingSession, isHost, isParticipant);
 
-  const problemData = session?.problem
-    ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
-    : null;
+  const problemData = useMemo(
+    () =>
+      session?.problem
+        ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
+        : null,
+    [session?.problem],
+  );
 
   const [selectedLanguage, setSelectedLanguage] = useState(
     session?.language || "javascript",
   );
-  const [code, setCode] = useState(
-    problemData?.starterCode?.[selectedLanguage] || "",
+
+  // Track whether code was initialised (from server, socket, or DB)
+  const codeInitialised = useRef(false);
+
+  const [code, setCode] = useState("");
+
+  // ── Auto-save timer ref ──
+  const autoSaveTimer = useRef(null);
+  const lastSavedCode = useRef("");
+
+  // Auto-save code to backend every 5 seconds when code changes
+  const scheduleAutoSave = useCallback(
+    (codeToSave) => {
+      if (!id) return;
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = setTimeout(async () => {
+        if (codeToSave === lastSavedCode.current) return; // no change
+        try {
+          await sessionApi.saveCode(id, codeToSave, selectedLanguage);
+          lastSavedCode.current = codeToSave;
+        } catch {
+          // silent — auto-save is best-effort
+        }
+      }, 5000);
+    },
+    [id, selectedLanguage],
   );
 
-  const { emitCodeChange } = useSocket(
+  // ── Socket callbacks (stable refs via useCallback) ──
+  const handleRemoteCode = useCallback((newCode) => {
+    setCode(newCode);
+    codeInitialised.current = true;
+  }, []);
+
+  const handleRemoteLanguage = useCallback((lang) => {
+    setSelectedLanguage(lang);
+  }, []);
+
+  const handleRoomState = useCallback(
+    (state) => {
+      // Server sends existing room code + language on join / reconnect
+      if (state.code) {
+        setCode(state.code);
+        codeInitialised.current = true;
+      }
+      if (state.language) {
+        setSelectedLanguage(state.language);
+      }
+    },
+    [],
+  );
+
+  const { emitCodeChange, emitLanguageChange } = useSocket(
     session?.callId,
-    useCallback((newCode) => setCode(newCode), []),
+    handleRemoteCode,
+    handleRemoteLanguage,
+    handleRoomState,
   );
 
   const handleCodeChange = useCallback(
     (value) => {
       setCode(value);
       emitCodeChange(value);
+      scheduleAutoSave(value);
     },
-    [emitCodeChange],
+    [emitCodeChange, scheduleAutoSave],
   );
 
   // Set language from session when it loads
   useEffect(() => {
     if (session?.language) setSelectedLanguage(session.language);
   }, [session?.language]);
+
+  // Initialise code: prefer persisted code from DB, then starter code
+  useEffect(() => {
+    if (!session || loadingSession || codeInitialised.current) return;
+
+    // If DB has persisted code, use it
+    if (session.code) {
+      setCode(session.code);
+      lastSavedCode.current = session.code;
+      codeInitialised.current = true;
+      return;
+    }
+
+    // Fall back to starter code
+    if (problemData?.starterCode?.[selectedLanguage]) {
+      setCode(problemData.starterCode[selectedLanguage]);
+      codeInitialised.current = true;
+    }
+  }, [session, loadingSession, problemData, selectedLanguage]);
 
   useEffect(() => {
     if (!session || !user || loadingSession) return;
@@ -143,35 +219,53 @@ function SessionPage() {
     if (session.status === "completed") navigate("/dashboard");
   }, [session, loadingSession, navigate]);
 
-  useEffect(() => {
-    if (problemData?.starterCode?.[selectedLanguage]) {
-      setCode(problemData.starterCode[selectedLanguage]);
-    }
-  }, [problemData, selectedLanguage]);
+  // When language changes (by the local user), reset to starter code ONLY if
+  // code hasn't been manually edited yet (i.e. still matches the old starter).
+  const handleLanguageChange = useCallback(
+    (e) => {
+      const newLang = e.target.value;
 
-  const handleLanguageChange = (e) => {
-    const newLang = e.target.value;
-    setSelectedLanguage(newLang);
-    setCode(problemData?.starterCode?.[newLang] || "");
-    setOutput(null);
-  };
+      // Check if current code is still the starter code for the OLD language
+      const oldStarter = problemData?.starterCode?.[selectedLanguage] || "";
+      const isStillStarter = code === oldStarter || code === "";
 
-  const handleRunCode = async () => {
+      setSelectedLanguage(newLang);
+
+      if (isStillStarter) {
+        const newCode = problemData?.starterCode?.[newLang] || "";
+        setCode(newCode);
+        emitCodeChange(newCode);
+      }
+      // Always sync language to other users
+      emitLanguageChange(newLang);
+
+      setOutput(null);
+    },
+    [code, selectedLanguage, problemData, emitCodeChange, emitLanguageChange],
+  );
+
+  const handleRunCode = useCallback(async () => {
     setIsRunning(true);
     setOutput(null);
-    const result = await executeCode(selectedLanguage, code);
+    try {
+      const result = await executeCode(selectedLanguage, code);
 
-    // Compare actual output with expected output when available
-    const expected = problemData?.expectedOutput?.[selectedLanguage];
-    if (result.success && expected) {
-      result.matched = result.output?.trim() === expected.trim();
+      // Compare actual output with expected output when available
+      const expected = problemData?.expectedOutput?.[selectedLanguage];
+      if (result.success && expected) {
+        result.matched = result.output?.trim() === expected.trim();
+      }
+
+      setOutput(result);
+    } catch {
+      setOutput({ success: false, error: "Unexpected error running code." });
+    } finally {
+      setIsRunning(false);
     }
+  }, [selectedLanguage, code, problemData]);
 
-    setOutput(result);
-    setIsRunning(false);
-  };
-
-  const handleReviewCode = async () => {
+  const handleReviewCode = useCallback(async () => {
+    if (isReviewing) return; // prevent double-click
     setIsReviewing(true);
     try {
       const result = await sessionApi.reviewWithAI(code, selectedLanguage);
@@ -183,9 +277,9 @@ function SessionPage() {
     } finally {
       setIsReviewing(false);
     }
-  };
+  }, [code, selectedLanguage, isReviewing]);
 
-  const handleEndSession = () => {
+  const handleEndSession = useCallback(() => {
     if (
       confirm(
         "Are you sure you want to end this session? All participants will be notified.",
@@ -195,16 +289,74 @@ function SessionPage() {
         onSuccess: () => navigate("/dashboard"),
       });
     }
-  };
+  }, [id, endSessionMutation, navigate]);
 
-  const handleCopyInviteLink = () => {
+  const handleCopyInviteLink = useCallback(() => {
     const link = `${window.location.origin}/session/${id}`;
     navigator.clipboard.writeText(link).then(() => {
       setCopied(true);
       toast.success("Invite link copied!");
       setTimeout(() => setCopied(false), 2000);
     });
-  };
+  }, [id]);
+
+  // ── Cleanup auto-save on unmount ──
+  useEffect(() => {
+    return () => clearTimeout(autoSaveTimer.current);
+  }, []);
+
+  /* ── Error state ── */
+  if (sessionError) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#0d0e14",
+          color: "#e8eaf0",
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: "50%",
+            background: "rgba(248,113,113,.15)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <AlertTriangleIcon size={32} color="#f87171" />
+        </div>
+        <p style={{ fontSize: "1.2rem", fontWeight: 800 }}>Session Not Found</p>
+        <p style={{ fontSize: ".85rem", color: "rgba(232,234,240,.4)", maxWidth: 320, textAlign: "center" }}>
+          {sessionError?.response?.status === 404
+            ? "This session doesn't exist or has been deleted."
+            : "Unable to load the session. Please check your connection and try again."}
+        </p>
+        <button
+          onClick={() => navigate("/dashboard")}
+          style={{
+            marginTop: 8,
+            padding: ".5rem 1.5rem",
+            background: "rgba(99,102,241,.15)",
+            border: "1px solid rgba(99,102,241,.3)",
+            borderRadius: 8,
+            color: "#a78bfa",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   /* ── Full-page loader while session is loading ── */
   if (loadingSession) {
