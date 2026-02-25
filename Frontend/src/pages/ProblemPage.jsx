@@ -154,6 +154,7 @@ function ProblemPage() {
                     onLanguageChange={handleLanguageChange}
                     onCodeChange={setCode}
                     onRunCode={handleRunCode}
+                    problem={currentProblem}
                   />
                 </Panel>
 

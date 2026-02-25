@@ -22,9 +22,12 @@ import {
   CopyIcon,
   CheckIcon,
   LinkIcon,
+  FileTextIcon,
+  BookOpenIcon,
 } from "lucide-react";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 import OutputPanel from "../components/OutputPanel";
+import NotesPanel from "../components/NotesPanel";
 import toast from "react-hot-toast";
 
 import useStreamClient from "../hooks/useStreamClient";
@@ -83,6 +86,7 @@ function SessionPage() {
   const [copied, setCopied] = useState(false);
   const [aiReview, setAiReview] = useState(null);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [leftTab, setLeftTab] = useState("problem"); // "problem" | "notes"
 
   const {
     data: sessionData,
@@ -284,6 +288,36 @@ function SessionPage() {
         .prob-pane::-webkit-scrollbar { width: 4px; }
         .prob-pane::-webkit-scrollbar-track { background: transparent; }
         .prob-pane::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+
+        /* ── Left panel tabs ── */
+        .left-panel-tabs {
+          display: flex;
+          gap: 2px;
+          padding: 0 12px;
+          background: #0a0b10;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+          flex-shrink: 0;
+        }
+        .left-panel-tab {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 9px 14px;
+          font-size: 12px;
+          font-weight: 700;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          color: #475569;
+          background: transparent;
+          border: none;
+          border-bottom: 2px solid transparent;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .left-panel-tab:hover { color: #94a3b8; }
+        .left-panel-tab-active {
+          color: #e2e8f0;
+          border-bottom-color: #6366f1;
+        }
 
         /* Header */
         .prob-header {
@@ -615,9 +649,42 @@ function SessionPage() {
             {/* ── LEFT PANEL ── */}
             <Panel defaultSize={50} minSize={30}>
               <PanelGroup direction="vertical">
-                {/* Problem description */}
+                {/* Problem / Notes tabbed area */}
                 <Panel defaultSize={50} minSize={20}>
-                  <div className="prob-pane">
+                  <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#10111a" }}>
+                    {/* Tab switcher */}
+                    <div className="left-panel-tabs">
+                      <button
+                        className={`left-panel-tab ${leftTab === "problem" ? "left-panel-tab-active" : ""}`}
+                        onClick={() => setLeftTab("problem")}
+                      >
+                        <BookOpenIcon size={13} />
+                        Problem
+                      </button>
+                      <button
+                        className={`left-panel-tab ${leftTab === "notes" ? "left-panel-tab-active" : ""}`}
+                        onClick={() => setLeftTab("notes")}
+                      >
+                        <FileTextIcon size={13} />
+                        Notes
+                      </button>
+                    </div>
+
+                    {/* Tab content */}
+                    {leftTab === "notes" ? (
+                      <div style={{ flex: 1, overflow: "hidden" }}>
+                        <NotesPanel
+                          sessionId={id}
+                          sessionName={session?.name || session?.problem || ""}
+                          problemTitle={session?.problem || ""}
+                          difficulty={session?.difficulty || ""}
+                          userName={user?.fullName || user?.firstName || ""}
+                          code={code}
+                          aiReview={aiReview}
+                        />
+                      </div>
+                    ) : (
+                  <div className="prob-pane" style={{ flex: 1 }}>
                     {/* Header */}
                     <div className="prob-header">
                       <div className="prob-header-top">
@@ -734,6 +801,8 @@ function SessionPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+                    )}
                   </div>
                 </Panel>
 

@@ -13,4 +13,5 @@ export const ENV={
     STREAM_API_SECRET: process.env.STREAM_API_SECRET,
     CLERK_WEBHOOK_SECRET: process.env.CLERK_WEBHOOK_SECRET,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
 }

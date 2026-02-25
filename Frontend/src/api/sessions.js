@@ -36,4 +36,14 @@ export const sessionApi = {
     const response = await axiosInstance.post("/ai-review", { code, language });
     return response.data;
   },
+
+  // ── Notes ──
+  saveNote: async (sessionId, content) => {
+    const response = await axiosInstance.post("/notes/save", { sessionId, content });
+    return response.data;
+  },
+  getNote: async (sessionId) => {
+    const response = await axiosInstance.get(`/notes/${sessionId}`);
+    return response.data;
+  },
 };

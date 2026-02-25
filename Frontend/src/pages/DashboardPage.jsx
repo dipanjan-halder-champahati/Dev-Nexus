@@ -34,21 +34,36 @@ import { formatDistanceToNow } from "date-fns";
    ACTIVITY HEATMAP (LeetCode style)
    ═══════════════════════════════════════════════ */
 
-function generateHeatmapData() {
+function generateHeatmapData(sessionEvents = []) {
+  // Build a map of dateStr -> count from provided session events
+  const counts = {};
+  for (const s of sessionEvents || []) {
+    const d = s?.createdAt ? new Date(s.createdAt) : null;
+    if (!d || Number.isNaN(d.getTime())) continue;
+    const dateStr = d.toISOString().split("T")[0];
+    counts[dateStr] = (counts[dateStr] || 0) + 1;
+  }
+
   const data = [];
   const today = new Date();
   for (let i = 364; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(today.getDate() - i);
     const dateStr = date.toISOString().split("T")[0];
-    // Simulated data — in production, fetch from API
-    const rand = Math.random();
-    let count = 0;
-    if (rand > 0.65) count = Math.ceil(Math.random() * 3);
-    if (rand > 0.85) count = Math.ceil(Math.random() * 5) + 2;
-    if (rand > 0.95) count = Math.ceil(Math.random() * 4) + 6;
+    const count = counts[dateStr] || 0;
     data.push({ date: dateStr, count });
   }
+  // If there are no sessionEvents, fall back to a small random sprinkle for demo purposes
+  if ((sessionEvents?.length || 0) === 0) {
+    for (let i = 0; i < data.length; i++) {
+      const rand = Math.random();
+      let c = 0;
+      if (rand > 0.85) c = 1 + Math.ceil(Math.random() * 2);
+      if (rand > 0.95) c += Math.ceil(Math.random() * 3);
+      data[i].count = c;
+    }
+  }
+
   return data;
 }
 
@@ -62,10 +77,10 @@ function getIntensity(count) {
 
 const INTENSITY_COLORS = [
   "rgba(255,255,255,.04)",
-  "#1e3a5f",
-  "#1d6b9f",
-  "#2597d4",
-  "#38bdf8",
+  "#064e3b", // dark green
+  "#0f766e",
+  "#10b981",
+  "#34d399",
 ];
 
 const MONTHS = [
@@ -73,8 +88,8 @@ const MONTHS = [
   "Jul","Aug","Sep","Oct","Nov","Dec",
 ];
 
-function Heatmap() {
-  const data = useMemo(() => generateHeatmapData(), []);
+function Heatmap({ sessions = [] }) {
+  const data = useMemo(() => generateHeatmapData(sessions), [sessions]);
   const [tooltip, setTooltip] = useState(null);
 
   // Build weeks (columns) — each column = 7 days (Sun–Sat)
@@ -281,19 +296,57 @@ function DashboardPage() {
 
   // Simulated stats — in production, fetch from API
   const stats = useMemo(() => {
-    const solved = Math.floor(Math.random() * 30) + 10;
+    const userId = user?.id;
+
+    // Combine recent + active sessions for richer stats
+    const allSessions = [...recentSessions, ...activeSessions];
+
+    // Sessions where user participated (host or participant)
+    const mySessions = allSessions.filter(
+      (s) => s && (s.host?.clerkId === userId || s.participant?.clerkId === userId)
+    );
+
+    // Problems solved: unique problem ids from completed sessions
+    const completedByUser = mySessions.filter((s) => s.status === "completed");
+    const solvedSet = new Set(completedByUser.map((s) => s.problem));
+    const problemsSolved = solvedSet.size;
+
+    // totalSubmissions: sum explicit submissionsCount when present, else estimate 1
+    const totalSubmissions = mySessions.reduce(
+      (acc, s) => acc + (s.submissionsCount || 1),
+      0
+    );
+
+    // sessions created/joined (count across recent+active)
+    const sessionsCreated = allSessions.filter((s) => s.host?.clerkId === userId).length;
+    const sessionsJoined = allSessions.filter((s) => s.participant?.clerkId === userId).length;
+
+    // Streak: consecutive days up to today where user had at least one session
+    const dateSet = new Set(
+      mySessions
+        .map((s) => (s.createdAt ? new Date(s.createdAt).toISOString().split("T")[0] : null))
+        .filter(Boolean)
+    );
+
+    let streak = 0;
+    const today = new Date();
+    for (let i = 0; ; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const ds = d.toISOString().split("T")[0];
+      if (dateSet.has(ds)) streak++; else break;
+      // safety: max 365
+      if (streak >= 365) break;
+    }
+
     return {
-      problemsSolved: solved,
-      totalSubmissions: solved * 3 + Math.floor(Math.random() * 20),
-      sessionsCreated: recentSessions.filter(
-        (s) => s.host?.clerkId === user?.id
-      ).length,
-      sessionsJoined: recentSessions.filter(
-        (s) => s.participant?.clerkId === user?.id
-      ).length,
-      streak: Math.floor(Math.random() * 12) + 1,
+      problemsSolved,
+      totalSubmissions,
+      sessionsCreated,
+      sessionsJoined,
+      streak,
     };
-  }, [recentSessions, user?.id]);
+  }, [recentSessions, activeSessions, user?.id]);
 
   return (
     <>
@@ -870,24 +923,7 @@ function DashboardPage() {
               </div>
               <div className="quick-card-title">Join Session</div>
               <div className="quick-card-desc">Enter a room code to join a friend's session.</div>
-              <div className="join-input-row" onClick={(e) => e.stopPropagation()}>
-                <input
-                  id="join-input"
-                  className="join-input"
-                  placeholder="Room code..."
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && joinCode.trim()) navigate(`/session/${joinCode.trim()}`);
-                  }}
-                />
-                <button
-                  className="btn-primary btn-sm"
-                  onClick={() => { if (joinCode.trim()) navigate(`/session/${joinCode.trim()}`); }}
-                >
-                  <ArrowRightIcon size={14} />
-                </button>
-              </div>
+              {/* Join input moved below the Quick Actions grid for better UX */}
             </div>
 
             <div
@@ -906,6 +942,30 @@ function DashboardPage() {
               </div>
               <div className="quick-card-title">Resume Last</div>
               <div className="quick-card-desc">Continue where you left off in your last session.</div>
+            </div>
+          </div>
+
+          {/* Join input placed under the Join Session card (aligns to 3rd column) */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem", marginBottom: "1.25rem" }}>
+            <div style={{ gridColumn: 3, justifySelf: "stretch" }}>
+              <div className="join-input-row" onClick={(e) => e.stopPropagation()}>
+                <input
+                  id="join-input"
+                  className="join-input"
+                  placeholder="Room code..."
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && joinCode.trim()) navigate(`/session/${joinCode.trim()}`);
+                  }}
+                />
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={() => { if (joinCode.trim()) navigate(`/session/${joinCode.trim()}`); }}
+                >
+                  <ArrowRightIcon size={14} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -959,7 +1019,7 @@ function DashboardPage() {
             Activity
           </div>
           <div className="anim-4">
-            <Heatmap />
+            <Heatmap sessions={[...recentSessions, ...activeSessions]} />
           </div>
 
           {/* ═══════  SESSIONS (Active + Recent)  ═══════ */}

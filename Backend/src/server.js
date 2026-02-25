@@ -15,6 +15,7 @@ import codeRoute from "./routes/codeRoute.js";
 import sessionRoutes from "./routes/sessionRoute.js";
 import { setupSocket } from "./socket/socketHandler.js";
 import aiReviewRoute from "./routes/aiReviewRoute.js";
+import notesRoute from "./routes/notesRoute.js";
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -56,6 +57,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/run-code", codeRoute);
 app.use("/api/ai-review", aiReviewRoute);
+app.use("/api/notes", notesRoute);
 
 // =====================
 // Test Routes

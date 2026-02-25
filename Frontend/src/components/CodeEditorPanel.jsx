@@ -1,11 +1,6 @@
 import { useRef, useCallback } from "react";
 import Editor from "@monaco-editor/react";
-import {
-  Loader2Icon,
-  PlayIcon,
-  ChevronDownIcon,
-  SparklesIcon,
-} from "lucide-react";
+import { Loader2Icon, PlayIcon, ChevronDownIcon, BrainCircuitIcon } from "lucide-react";
 import { LANGUAGE_CONFIG } from "../data/problems";
 
 function CodeEditorPanel({
@@ -17,6 +12,7 @@ function CodeEditorPanel({
   onCodeChange,
   onRunCode,
   onReviewCode,
+  problem,
 }) {
   // Keep a stable ref to onRunCode so the keybinding always calls the latest version
   const runRef = useRef(onRunCode);
@@ -27,7 +23,9 @@ function CodeEditorPanel({
     editor.addAction({
       id: "run-code",
       label: "Run Code",
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+      ],
       run: () => runRef.current?.(),
     });
     editor.focus();
@@ -45,6 +43,47 @@ function CodeEditorPanel({
           padding: 10px 16px;
           background: #0d0e14;
           border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .submit-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 14px;
+          background: transparent;
+          border: 1px solid rgba(255,255,255,0.06);
+          color: #e2e8f0;
+          border-radius: 8px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .submit-btn:hover { background: rgba(255,255,255,0.02); }
+
+        .file-tabs {
+          display: flex;
+          gap: 8px;
+          padding: 10px 16px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+          border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .tab {
+          padding: 6px 10px;
+          border-radius: 8px;
+          background: rgba(255,255,255,0.02);
+          color: #cbd5e1;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px;
+          font-weight: 600;
+        }
+        .tab.active { background: rgba(34,197,94,0.12); color: #e2f9ea; border: 1px solid rgba(34,197,94,0.18); }
+
+        .editor-container {
+          height: calc(100% - 94px);
+          margin: 12px;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+          border: 1px solid rgba(255,255,255,0.03);
+          background: #0b1020;
         }
         .lang-selector-wrap {
           display: flex;
@@ -151,6 +190,10 @@ function CodeEditorPanel({
         }}
       >
         {/* macOS-style chrome dots */}
+        <div className="file-tabs">
+          <div className="tab active">solution.{LANGUAGE_CONFIG[selectedLanguage]?.monacoLang || 'js'}</div>
+          <div className="tab">tests ({problem?.examples?.length || 0})</div>
+        </div>
         <div className="editor-chrome">
           <div className="chrome-dot" style={{ background: "#ef4444" }} />
           <div className="chrome-dot" style={{ background: "#f59e0b" }} />
@@ -176,11 +219,7 @@ function CodeEditorPanel({
               style={{ width: 22, height: 22, borderRadius: 4 }}
             />
             <div style={{ position: "relative" }}>
-              <select
-                className="lang-select"
-                value={selectedLanguage}
-                onChange={onLanguageChange}
-              >
+              <select className="lang-select" value={selectedLanguage} onChange={onLanguageChange}>
                 {Object.entries(LANGUAGE_CONFIG).map(([key, lang]) => (
                   <option key={key} value={key}>
                     {lang.name}
@@ -190,63 +229,43 @@ function CodeEditorPanel({
               <ChevronDownIcon
                 size={13}
                 color="#64748b"
-                style={{
-                  position: "absolute",
-                  right: 10,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  pointerEvents: "none",
-                }}
+                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
               />
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              className="run-btn"
-              disabled={isRunning}
-              onClick={onRunCode}
-            >
-              {isRunning ? (
-                <>
-                  <Loader2Icon
-                    size={14}
-                    style={{ animation: "spin 1s linear infinite" }}
-                  />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <PlayIcon size={14} />
-                  Run Code
-                </>
-              )}
-            </button>
-            <button
-              className="review-btn"
-              disabled={isReviewing}
-              onClick={onReviewCode}
-            >
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="review-btn" disabled={isReviewing} onClick={onReviewCode}>
               {isReviewing ? (
                 <>
-                  <Loader2Icon
-                    size={14}
-                    style={{ animation: "spin 1s linear infinite" }}
-                  />
+                  <Loader2Icon size={14} style={{ animation: "spin 1s linear infinite" }} />
                   Reviewing...
                 </>
               ) : (
                 <>
-                  <SparklesIcon size={14} />
-                  Review with AI
+                  <BrainCircuitIcon size={14} />
+                  AI Review
                 </>
               )}
+            </button>
+            <button className="run-btn" disabled={isRunning} onClick={onRunCode}>
+            {isRunning ? (
+              <>
+                <Loader2Icon size={14} style={{ animation: "spin 1s linear infinite" }} />
+                Running...
+              </>
+            ) : (
+              <>
+                <PlayIcon size={14} />
+                Run Code
+              </>
+            )}
             </button>
           </div>
         </div>
 
         {/* Editor */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
+        <div className="editor-container">
           <Editor
             height="100%"
             language={LANGUAGE_CONFIG[selectedLanguage]?.monacoLang}

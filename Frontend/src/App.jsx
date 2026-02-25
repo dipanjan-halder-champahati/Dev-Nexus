@@ -8,6 +8,7 @@ import ProblemsPage from "./pages/ProblemsPage";
 import ProblemPage from "./pages/ProblemPage";
 import SessionPage from "./pages/SessionPage";
 
+
 function ProtectedRoute({ children }) {
   const { isSignedIn, isLoaded } = useUser();
 
