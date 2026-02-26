@@ -114,7 +114,7 @@ function Navbar() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                TalentIQ
+                DevNexus
               </span>
               <span
                 style={{
