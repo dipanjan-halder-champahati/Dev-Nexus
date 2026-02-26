@@ -47,6 +47,16 @@ export const sessionApi = {
     return response.data;
   },
 
+  // ── Host Controls ──
+  changeProblem: async (sessionId, problem, difficulty) => {
+    const response = await axiosInstance.post(`/sessions/${sessionId}/change-problem`, { problem, difficulty });
+    return response.data;
+  },
+  updateProblemList: async (sessionId, problemList) => {
+    const response = await axiosInstance.post(`/sessions/${sessionId}/update-problem-list`, { problemList });
+    return response.data;
+  },
+
   // ── Notes ──
   saveNote: async (sessionId, content) => {
     const response = await axiosInstance.post("/notes/save", { sessionId, content });

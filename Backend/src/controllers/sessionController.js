@@ -3,7 +3,7 @@ import Session from "../models/Session.js";
 
 export async function createSession(req, res) {
   try {
-    const { problem, difficulty, name, language, visibility } = req.body;
+    const { problem, difficulty, name, language, visibility, maxParticipants, problemList } = req.body;
     const userId = req.user._id;
     const clerkId = req.user.clerkId;
 
@@ -11,10 +11,10 @@ export async function createSession(req, res) {
       return res.status(400).json({ message: "Problem and difficulty are required" });
     }
 
+    // Clamp maxParticipants to 2–10 (default 2)
+    const maxP = Math.max(2, Math.min(10, Number(maxParticipants) || 2));
+
     // ── 1. Ensure the host user exists in Stream ───────────────────
-    // This covers the case where the Clerk webhook / inngest hasn't
-    // synced this user to Stream yet. Without this, Stream returns 404
-    // when we reference the user in created_by_id or members.
     await upsertStreamUser({
       id: clerkId,
       name: req.user.name || "Host",
@@ -25,6 +25,11 @@ export async function createSession(req, res) {
     const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     // ── 3. Create Session document in MongoDB ──────────────────────
+    // Build the problem list; always include the primary problem
+    const pList = Array.isArray(problemList) && problemList.length > 0
+      ? problemList.map((p) => ({ title: p.title || p, difficulty: (p.difficulty || difficulty || 'easy').toLowerCase() }))
+      : [{ title: problem, difficulty: (difficulty || 'easy').toLowerCase() }];
+
     const session = await Session.create({
       problem,
       difficulty,
@@ -33,6 +38,9 @@ export async function createSession(req, res) {
       name: name || "",
       language: language || "javascript",
       visibility: visibility || "private",
+      maxParticipants: maxP,
+      participants: [],
+      problemList: pList,
     });
 
     // ── 4. Create Stream Video call ────────────────────────────────
@@ -79,6 +87,7 @@ export async function createSession(req, res) {
 
     // ── 6. Return populated session ────────────────────────────────
     await session.populate("host", "name profileImage email clerkId");
+    await session.populate("participants", "name profileImage email clerkId");
 
     res.status(201).json({ session });
   } catch (error) {
@@ -92,6 +101,7 @@ export async function getActiveSessions(_, res) {
     const sessions = await Session.find({ status: "active" })
       .populate("host", "name profileImage email clerkId")
       .populate("participant", "name profileImage email clerkId")
+      .populate("participants", "name profileImage email clerkId")
       .sort({ createdAt: -1 })
       .limit(20);
 
@@ -108,10 +118,11 @@ export async function getMyRecentSessions(req, res) {
 
     const sessions = await Session.find({
       status: "completed",
-      $or: [{ host: userId }, { participant: userId }],
+      $or: [{ host: userId }, { participant: userId }, { participants: userId }],
     })
       .populate("host", "name profileImage email clerkId")
       .populate("participant", "name profileImage email clerkId")
+      .populate("participants", "name profileImage email clerkId")
       .sort({ createdAt: -1 })
       .limit(20);
 
@@ -128,7 +139,8 @@ export async function getSessionById(req, res) {
 
     const session = await Session.findById(id)
       .populate("host", "name email profileImage clerkId")
-      .populate("participant", "name email profileImage clerkId");
+      .populate("participant", "name email profileImage clerkId")
+      .populate("participants", "name email profileImage clerkId");
 
     if (!session) return res.status(404).json({ message: "Session not found" });
 
@@ -157,8 +169,24 @@ export async function joinSession(req, res) {
       return res.status(400).json({ message: "Host cannot join their own session as participant" });
     }
 
-    // check if session is already full - has a participant
-    if (session.participant) return res.status(409).json({ message: "Session is full" });
+    // Check if user is already a participant
+    const alreadyJoined = (session.participants || []).some(
+      (p) => p.toString() === userId.toString()
+    );
+    if (alreadyJoined) {
+      // Already in session — just return it
+      await session.populate("host", "name profileImage email clerkId");
+      await session.populate("participant", "name profileImage email clerkId");
+      await session.populate("participants", "name profileImage email clerkId");
+      return res.status(200).json({ session });
+    }
+
+    // Room-size check: total people = 1 (host) + participants.length
+    const maxP = session.maxParticipants || 2;
+    const currentCount = 1 + (session.participants || []).length;
+    if (currentCount >= maxP) {
+      return res.status(409).json({ message: "Room is full. Cannot join session." });
+    }
 
     // Ensure participant exists in Stream
     await upsertStreamUser({
@@ -167,7 +195,13 @@ export async function joinSession(req, res) {
       image: req.user.profileImage || "",
     });
 
-    session.participant = userId;
+    // Add to new participants array
+    session.participants = session.participants || [];
+    session.participants.push(userId);
+    // Keep legacy field pointing to first participant for backward compat
+    if (!session.participant) {
+      session.participant = userId;
+    }
     await session.save();
 
     // Add participant to the video call
@@ -186,6 +220,7 @@ export async function joinSession(req, res) {
 
     await session.populate("host", "name profileImage email clerkId");
     await session.populate("participant", "name profileImage email clerkId");
+    await session.populate("participants", "name profileImage email clerkId");
 
     res.status(200).json({ session });
   } catch (error) {
@@ -203,12 +238,15 @@ export async function endSession(req, res) {
 
     if (!session) return res.status(404).json({ message: "Session not found" });
 
-    // Allow both host AND participant to end the session
+    // Allow both host AND participants to end the session
     const isHost = session.host.toString() === userId.toString();
     const isParticipant =
       session.participant && session.participant.toString() === userId.toString();
+    const isInParticipants = (session.participants || []).some(
+      (p) => p.toString() === userId.toString()
+    );
 
-    if (!isHost && !isParticipant) {
+    if (!isHost && !isParticipant && !isInParticipants) {
       return res.status(403).json({ message: "Only session members can end the session" });
     }
 
@@ -260,7 +298,10 @@ export async function saveCode(req, res) {
     const isHost = session.host.toString() === userId.toString();
     const isParticipant =
       session.participant && session.participant.toString() === userId.toString();
-    if (!isHost && !isParticipant) {
+    const isInParticipants = (session.participants || []).some(
+      (p) => p.toString() === userId.toString()
+    );
+    if (!isHost && !isParticipant && !isInParticipants) {
       return res.status(403).json({ message: "Only session members can save code" });
     }
 
@@ -271,6 +312,88 @@ export async function saveCode(req, res) {
     res.status(200).json({ success: true });
   } catch (error) {
     console.error("Error in saveCode controller:", error.message);
+    res.status(500).json({ message: error.message || "Internal Server Error" });
+  }
+}
+
+/**
+ * Update the problem list for a session (host only).
+ * Body: { problemList: [{ title, difficulty }] }
+ */
+export async function updateProblemList(req, res) {
+  try {
+    const { id } = req.params;
+    const { problemList } = req.body;
+    const userId = req.user._id;
+
+    if (!Array.isArray(problemList) || problemList.length === 0) {
+      return res.status(400).json({ message: "At least one problem is required" });
+    }
+
+    const session = await Session.findById(id);
+    if (!session) return res.status(404).json({ message: "Session not found" });
+
+    if (session.host.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Only the host can update the problem list" });
+    }
+
+    session.problemList = problemList.map((p) => ({
+      title: p.title,
+      difficulty: (p.difficulty || 'easy').toLowerCase(),
+    }));
+
+    // If the current active problem was removed, switch to the first one
+    const stillInList = session.problemList.some((p) => p.title === session.problem);
+    if (!stillInList && session.problemList.length > 0) {
+      session.problem = session.problemList[0].title;
+      session.difficulty = session.problemList[0].difficulty;
+    }
+
+    await session.save();
+
+    await session.populate("host", "name profileImage email clerkId");
+    await session.populate("participant", "name profileImage email clerkId");
+    await session.populate("participants", "name profileImage email clerkId");
+
+    res.status(200).json({ session });
+  } catch (error) {
+    console.error("Error in updateProblemList controller:", error.message);
+    res.status(500).json({ message: error.message || "Internal Server Error" });
+  }
+}
+
+/**
+ * Change the problem for a session (host only).
+ */
+export async function changeProblem(req, res) {
+  try {
+    const { id } = req.params;
+    const { problem, difficulty } = req.body;
+    const userId = req.user._id;
+
+    if (!problem) {
+      return res.status(400).json({ message: "Problem is required" });
+    }
+
+    const session = await Session.findById(id);
+    if (!session) return res.status(404).json({ message: "Session not found" });
+
+    // Only host can change the problem
+    if (session.host.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Only the host can change the problem" });
+    }
+
+    session.problem = problem;
+    if (difficulty) session.difficulty = difficulty;
+    await session.save();
+
+    await session.populate("host", "name profileImage email clerkId");
+    await session.populate("participant", "name profileImage email clerkId");
+    await session.populate("participants", "name profileImage email clerkId");
+
+    res.status(200).json({ session });
+  } catch (error) {
+    console.error("Error in changeProblem controller:", error.message);
     res.status(500).json({ message: error.message || "Internal Server Error" });
   }
 }

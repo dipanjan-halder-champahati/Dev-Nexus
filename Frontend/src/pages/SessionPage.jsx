@@ -43,6 +43,7 @@ import {
   HostNotificationPanel,
   FocusModeStyles,
 } from "../components/FocusMode";
+import HostControlPanel from "../components/HostControlPanel";
 
 /* ─────────────── Difficulty colour map ─────────────── */
 const DIFF_STYLES = {
@@ -108,7 +109,10 @@ function SessionPage() {
 
   const session = sessionData?.session;
   const isHost = session?.host?.clerkId === user?.id;
-  const isParticipant = session?.participant?.clerkId === user?.id;
+  const isParticipant =
+    session?.participant?.clerkId === user?.id ||
+    session?.participants?.some((p) => p.clerkId === user?.id) ||
+    false;
 
   const { call, channel, chatClient, isInitializingCall, streamClient } =
     useStreamClient(session, loadingSession, isHost, isParticipant);
@@ -239,6 +243,21 @@ function SessionPage() {
     if (isHost || isParticipant) return;
     joinSessionMutation.mutate(id, { onSuccess: refetch });
   }, [session, user, loadingSession, isHost, isParticipant, id]);
+
+  // Listen for real-time problem changes from host
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket) return;
+    const handleProblemUpdated = () => {
+      refetch();
+    };
+    socket.on("problem-updated", handleProblemUpdated);
+    socket.on("problemlist-updated", handleProblemUpdated);
+    return () => {
+      socket.off("problem-updated", handleProblemUpdated);
+      socket.off("problemlist-updated", handleProblemUpdated);
+    };
+  }, [socketRef, refetch]);
 
   useEffect(() => {
     if (!session || loadingSession) return;
@@ -440,20 +459,48 @@ function SessionPage() {
 
         /* ── Panel resize handles ── */
         .rh-col {
-          width: 4px;
-          background: rgba(255,255,255,.05);
+          width: 6px;
+          background: rgba(255,255,255,.04);
           cursor: col-resize;
           transition: background .15s;
+          position: relative;
         }
-        .rh-col:hover, .rh-col:active { background: rgba(108,79,246,.65); }
-
-        .rh-row {
-          height: 4px;
-          background: rgba(255,255,255,.05);
-          cursor: row-resize;
+        .rh-col::after {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 2px;
+          height: 32px;
+          border-radius: 1px;
+          background: rgba(255,255,255,.12);
           transition: background .15s;
         }
-        .rh-row:hover, .rh-row:active { background: rgba(108,79,246,.65); }
+        .rh-col:hover, .rh-col:active { background: rgba(108,79,246,.25); }
+        .rh-col:hover::after, .rh-col:active::after { background: rgba(108,79,246,.8); }
+
+        .rh-row {
+          height: 6px;
+          background: rgba(255,255,255,.04);
+          cursor: row-resize;
+          transition: background .15s;
+          position: relative;
+        }
+        .rh-row::after {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 32px;
+          height: 2px;
+          border-radius: 1px;
+          background: rgba(255,255,255,.12);
+          transition: background .15s;
+        }
+        .rh-row:hover, .rh-row:active { background: rgba(108,79,246,.25); }
+        .rh-row:hover::after, .rh-row:active::after { background: rgba(108,79,246,.8); }
 
         /* ── Problem description pane ── */
         .prob-pane {
@@ -499,17 +546,17 @@ function SessionPage() {
 
         /* Header */
         .prob-header {
-          padding: 1.4rem 1.6rem 1.2rem;
+          padding: 1rem 1.2rem .9rem;
           background: #0d0e14;
           border-bottom: 1px solid rgba(255,255,255,.06);
           flex-shrink: 0;
         }
         .prob-title {
-          font-size: 1.3rem;
+          font-size: 1.05rem;
           font-weight: 800;
           color: #e8eaf0;
-          margin: 0 0 .35rem;
-          line-height: 1.2;
+          margin: 0 0 .3rem;
+          line-height: 1.25;
         }
         .prob-meta {
           display: flex;
@@ -565,7 +612,7 @@ function SessionPage() {
         }
 
         /* ── Content blocks ── */
-        .prob-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; }
+        .prob-body { padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: .9rem; }
 
         .content-block {
           background: rgba(255,255,255,.03);
@@ -788,13 +835,18 @@ function SessionPage() {
             <div className="topbar-participants">
               <span className="live-dot" />
               <UsersIcon size={12} />
-              <span>{session?.participant ? 2 : 1}/2</span>
+              <span>
+                {1 + (session?.participants?.length || (session?.participant ? 1 : 0))}
+                /{session?.maxParticipants || 2}
+              </span>
               {session?.host?.name && (
                 <span style={{ color: "rgba(232,234,240,.35)", marginLeft: 4 }}>
                   — {session.host.name}
-                  {session?.participant?.name
-                    ? `, ${session.participant.name}`
-                    : ""}
+                  {session?.participants?.length
+                    ? session.participants.map((p) => `, ${p.name}`).join("")
+                    : session?.participant?.name
+                      ? `, ${session.participant.name}`
+                      : ""}
                 </span>
               )}
             </div>
@@ -834,45 +886,53 @@ function SessionPage() {
         </div>
 
         <div style={{ flex: 1, overflow: "hidden" }}>
-          <PanelGroup direction="horizontal">
-            {/* ── LEFT PANEL ── */}
-            <Panel defaultSize={50} minSize={30}>
-              <PanelGroup direction="vertical">
-                {/* Problem / Notes tabbed area */}
-                <Panel defaultSize={50} minSize={20}>
-                  <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#10111a" }}>
-                    {/* Tab switcher */}
-                    <div className="left-panel-tabs">
-                      <button
-                        className={`left-panel-tab ${leftTab === "problem" ? "left-panel-tab-active" : ""}`}
-                        onClick={() => setLeftTab("problem")}
-                      >
-                        <BookOpenIcon size={13} />
-                        Problem
-                      </button>
-                      <button
-                        className={`left-panel-tab ${leftTab === "notes" ? "left-panel-tab-active" : ""}`}
-                        onClick={() => setLeftTab("notes")}
-                      >
-                        <FileTextIcon size={13} />
-                        Notes
-                      </button>
-                    </div>
+          <PanelGroup direction="horizontal" autoSaveId="session-layout-main">
 
-                    {/* Tab content */}
-                    {leftTab === "notes" ? (
-                      <div style={{ flex: 1, overflow: "hidden" }}>
-                        <NotesPanel
-                          sessionId={id}
-                          sessionName={session?.name || session?.problem || ""}
-                          problemTitle={session?.problem || ""}
-                          difficulty={session?.difficulty || ""}
-                          userName={user?.fullName || user?.firstName || ""}
-                          code={code}
-                          aiReview={aiReview}
-                        />
-                      </div>
-                    ) : (
+            {/* ══════════ LEFT COLUMN: Problem / Notes ══════════ */}
+            <Panel defaultSize={25} minSize={15} maxSize={45}>
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#10111a" }}>
+                {/* Tab switcher */}
+                <div className="left-panel-tabs">
+                  <button
+                    className={`left-panel-tab ${leftTab === "problem" ? "left-panel-tab-active" : ""}`}
+                    onClick={() => setLeftTab("problem")}
+                  >
+                    <BookOpenIcon size={13} />
+                    Problem
+                  </button>
+                  <button
+                    className={`left-panel-tab ${leftTab === "notes" ? "left-panel-tab-active" : ""}`}
+                    onClick={() => setLeftTab("notes")}
+                  >
+                    <FileTextIcon size={13} />
+                    Notes
+                  </button>
+                </div>
+
+                {/* Host Control Panel */}
+                <div style={{ padding: "10px 12px 0", flexShrink: 0 }}>
+                  <HostControlPanel
+                    session={session}
+                    isHost={isHost}
+                    onProblemChange={() => refetch()}
+                    socketRef={socketRef}
+                  />
+                </div>
+
+                {/* Tab content */}
+                {leftTab === "notes" ? (
+                  <div style={{ flex: 1, overflow: "hidden" }}>
+                    <NotesPanel
+                      sessionId={id}
+                      sessionName={session?.name || session?.problem || ""}
+                      problemTitle={session?.problem || ""}
+                      difficulty={session?.difficulty || ""}
+                      userName={user?.fullName || user?.firstName || ""}
+                      code={code}
+                      aiReview={aiReview}
+                    />
+                  </div>
+                ) : (
                   <div className="prob-pane" style={{ flex: 1 }}>
                     {/* Header */}
                     <div className="prob-header">
@@ -905,7 +965,8 @@ function SessionPage() {
                         </span>
                         <span className="prob-meta-item">
                           <UsersIcon size={11} />
-                          {session?.participant ? 2 : 1}/2 participants
+                          {1 + (session?.participants?.length || (session?.participant ? 1 : 0))}
+                          /{session?.maxParticipants || 2} participants
                         </span>
                       </div>
                     </div>
@@ -991,42 +1052,40 @@ function SessionPage() {
                       )}
                     </div>
                   </div>
-                    )}
-                  </div>
+                )}
+              </div>
+            </Panel>
+
+            <PanelResizeHandle className="rh-col" />
+
+            {/* ══════════ CENTER COLUMN: Editor + Output ══════════ */}
+            <Panel defaultSize={48} minSize={30}>
+              <PanelGroup direction="vertical" autoSaveId="session-layout-editor">
+                <Panel defaultSize={75} minSize={25}>
+                  <CodeEditorPanel
+                    selectedLanguage={selectedLanguage}
+                    code={code}
+                    isRunning={isRunning}
+                    isReviewing={isReviewing}
+                    onLanguageChange={handleLanguageChange}
+                    onCodeChange={handleCodeChange}
+                    onRunCode={handleRunCode}
+                    onReviewCode={handleReviewCode}
+                  />
                 </Panel>
 
                 <PanelResizeHandle className="rh-row" />
 
-                {/* Editor + Output */}
-                <Panel defaultSize={50} minSize={20}>
-                  <PanelGroup direction="vertical">
-                    <Panel defaultSize={70} minSize={30}>
-                      <CodeEditorPanel
-                        selectedLanguage={selectedLanguage}
-                        code={code}
-                        isRunning={isRunning}
-                        isReviewing={isReviewing}
-                        onLanguageChange={handleLanguageChange}
-                        onCodeChange={handleCodeChange}
-                        onRunCode={handleRunCode}
-                        onReviewCode={handleReviewCode}
-                      />
-                    </Panel>
-
-                    <PanelResizeHandle className="rh-row" />
-
-                    <Panel defaultSize={30} minSize={15}>
-                      <OutputPanel output={output} aiReview={aiReview} />
-                    </Panel>
-                  </PanelGroup>
+                <Panel defaultSize={25} minSize={10}>
+                  <OutputPanel output={output} aiReview={aiReview} />
                 </Panel>
               </PanelGroup>
             </Panel>
 
             <PanelResizeHandle className="rh-col" />
 
-            {/* ── RIGHT PANEL: Video & Chat ── */}
-            <Panel defaultSize={50} minSize={28}>
+            {/* ══════════ RIGHT COLUMN: Video & Chat ══════════ */}
+            <Panel defaultSize={27} minSize={18}>
               <div className="video-panel-wrap">
                 {isInitializingCall ? (
                   <div className="call-state-wrap">

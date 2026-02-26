@@ -90,6 +90,18 @@ export function setupSocket(io) {
       socket.to(roomId).emit("focus-violation", { userId, userName, type, count });
     });
 
+    // ── Problem change: host changes the problem for the room ──
+    socket.on("problem-change", ({ roomId, problem, difficulty }) => {
+      if (!roomId) return;
+      socket.to(roomId).emit("problem-updated", { problem, difficulty });
+    });
+
+    // ── Problem list updated: host adds/removes problems ──
+    socket.on("problemlist-change", ({ roomId, problemList }) => {
+      if (!roomId) return;
+      socket.to(roomId).emit("problemlist-updated", { problemList });
+    });
+
     // ── Disconnect ──
     socket.on("disconnect", () => {
       console.log(`Socket disconnected: ${socket.id}`);
