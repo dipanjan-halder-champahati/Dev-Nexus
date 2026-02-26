@@ -108,5 +108,5 @@ export default function useSocket(roomId, onCodeUpdate, onLanguageUpdate, onRoom
     });
   }, []);
 
-  return { emitCodeChange, emitLanguageChange };
+  return { emitCodeChange, emitLanguageChange, socketRef };
 }

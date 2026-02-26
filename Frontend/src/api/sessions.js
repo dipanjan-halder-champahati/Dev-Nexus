@@ -41,6 +41,12 @@ export const sessionApi = {
     return response.data;
   },
 
+  // ── Focus Mode ──
+  reportFocusEvent: async (sessionId, event) => {
+    const response = await axiosInstance.post(`/sessions/${sessionId}/focus-event`, { event });
+    return response.data;
+  },
+
   // ── Notes ──
   saveNote: async (sessionId, content) => {
     const response = await axiosInstance.post("/notes/save", { sessionId, content });
