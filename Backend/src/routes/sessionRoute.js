@@ -9,6 +9,7 @@ import {
   joinSession,
   saveCode,
 } from "../controllers/sessionController.js";
+import { recordFocusEvent } from "../controllers/focusController.js";
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.get("/:id", protectRoute, getSessionById);
 router.post("/:id/join", protectRoute, joinSession);
 router.post("/:id/end", protectRoute, endSession);
 router.post("/:id/save-code", protectRoute, saveCode);
+router.post("/:id/focus-event", protectRoute, recordFocusEvent);
 
 export default router;

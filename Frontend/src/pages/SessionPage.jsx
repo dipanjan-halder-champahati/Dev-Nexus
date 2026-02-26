@@ -35,6 +35,14 @@ import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
 import useSocket from "../hooks/useSocket";
+import useFocusMode from "../hooks/useFocusMode";
+import {
+  FocusModeToggle,
+  FocusViolationBadge,
+  FocusWarningOverlay,
+  HostNotificationPanel,
+  FocusModeStyles,
+} from "../components/FocusMode";
 
 /* ─────────────── Difficulty colour map ─────────────── */
 const DIFF_STYLES = {
@@ -168,12 +176,30 @@ function SessionPage() {
     [],
   );
 
-  const { emitCodeChange, emitLanguageChange } = useSocket(
+  const { emitCodeChange, emitLanguageChange, socketRef } = useSocket(
     session?.callId,
     handleRemoteCode,
     handleRemoteLanguage,
     handleRoomState,
   );
+
+  /* ── Focus Mode ── */
+  const {
+    focusEnabled,
+    toggleFocusMode,
+    tabSwitchCount,
+    fullscreenExitCount,
+    totalViolations,
+    warnings: focusWarnings,
+    hostNotifications,
+  } = useFocusMode({
+    enabled: false,
+    roomId: session?.callId,
+    userId: user?.id,
+    userName: user?.fullName || user?.firstName || "",
+    socketRef,
+    isHost,
+  });
 
   const handleCodeChange = useCallback(
     (value) => {
@@ -779,6 +805,17 @@ function SessionPage() {
               {copied ? <CheckIcon size={13} /> : <LinkIcon size={13} />}
               {copied ? "Copied!" : "Copy Invite Link"}
             </button>
+            <FocusModeToggle
+              enabled={focusEnabled}
+              onToggle={toggleFocusMode}
+              isHost={isHost}
+            />
+            <FocusViolationBadge
+              totalViolations={totalViolations}
+              tabSwitchCount={tabSwitchCount}
+              fullscreenExitCount={fullscreenExitCount}
+              enabled={focusEnabled}
+            />
             {isHost && session?.status === "active" && (
               <button
                 onClick={handleEndSession}
@@ -1043,6 +1080,15 @@ function SessionPage() {
           </PanelGroup>
         </div>
       </div>
+
+      {/* ── Focus Mode overlays ── */}
+      <FocusModeStyles />
+      <FocusWarningOverlay warnings={focusWarnings} />
+      <HostNotificationPanel
+        notifications={hostNotifications}
+        enabled={focusEnabled}
+        isHost={isHost}
+      />
     </>
   );
 }

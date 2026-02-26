@@ -78,6 +78,18 @@ export function setupSocket(io) {
       socket.to(roomId).emit("cursor-update", { socketId: socket.id, cursor });
     });
 
+    // ── Focus-mode: host toggles proctored mode for the room ──
+    socket.on("focus-mode-toggle", ({ roomId, enabled }) => {
+      if (!roomId) return;
+      socket.to(roomId).emit("focus-mode-toggle", { enabled });
+    });
+
+    // ── Focus-mode: participant focus violation → broadcast to room ──
+    socket.on("focus-violation", ({ roomId, userId, userName, type, count }) => {
+      if (!roomId) return;
+      socket.to(roomId).emit("focus-violation", { userId, userName, type, count });
+    });
+
     // ── Disconnect ──
     socket.on("disconnect", () => {
       console.log(`Socket disconnected: ${socket.id}`);

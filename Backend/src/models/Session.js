@@ -45,6 +45,16 @@ const sessionSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    // Focus-mode proctoring logs
+    focusEvents: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        clerkId: String,
+        userName: String,
+        event: { type: String, enum: ['tab-switch', 'fullscreen-exit'] },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
     status: {
       type: String,
       enum: ['active', 'completed'],
