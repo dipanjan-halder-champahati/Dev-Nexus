@@ -53,17 +53,6 @@ function generateHeatmapData(sessionEvents = []) {
     const count = counts[dateStr] || 0;
     data.push({ date: dateStr, count });
   }
-  // If there are no sessionEvents, fall back to a small random sprinkle for demo purposes
-  if ((sessionEvents?.length || 0) === 0) {
-    for (let i = 0; i < data.length; i++) {
-      const rand = Math.random();
-      let c = 0;
-      if (rand > 0.85) c = 1 + Math.ceil(Math.random() * 2);
-      if (rand > 0.95) c += Math.ceil(Math.random() * 3);
-      data[i].count = c;
-    }
-  }
-
   return data;
 }
 
@@ -297,32 +286,39 @@ function DashboardPage() {
 
   const firstName = user?.firstName || user?.username || "Developer";
 
-  // Simulated stats — in production, fetch from API
+  // Compute stats from real session data
   const stats = useMemo(() => {
     const userId = user?.id;
+    if (!userId) return { problemsSolved: 0, totalSubmissions: 0, sessionsCreated: 0, sessionsJoined: 0, streak: 0 };
 
     // Combine recent + active sessions for richer stats
     const allSessions = [...recentSessions, ...activeSessions];
 
-    // Sessions where user participated (host or participant)
-    const mySessions = allSessions.filter(
-      (s) => s && (s.host?.clerkId === userId || s.participant?.clerkId === userId)
-    );
+    // Helper: check if user is a member of this session
+    const isMySession = (s) =>
+      s &&
+      (s.host?.clerkId === userId ||
+       s.participant?.clerkId === userId ||
+       (s.participants || []).some((p) => p?.clerkId === userId));
 
-    // Problems solved: unique problem ids from completed sessions
+    // Sessions where user participated (host, participant, or in participants array)
+    const mySessions = allSessions.filter(isMySession);
+
+    // Problems solved: unique problem titles from completed sessions
     const completedByUser = mySessions.filter((s) => s.status === "completed");
     const solvedSet = new Set(completedByUser.map((s) => s.problem));
     const problemsSolved = solvedSet.size;
 
-    // totalSubmissions: sum explicit submissionsCount when present, else estimate 1
-    const totalSubmissions = mySessions.reduce(
-      (acc, s) => acc + (s.submissionsCount || 1),
-      0
-    );
+    // totalSubmissions: count of completed sessions (each completed session = 1 submission)
+    const totalSubmissions = completedByUser.length;
 
     // sessions created/joined (count across recent+active)
     const sessionsCreated = allSessions.filter((s) => s.host?.clerkId === userId).length;
-    const sessionsJoined = allSessions.filter((s) => s.participant?.clerkId === userId).length;
+    const sessionsJoined = allSessions.filter(
+      (s) =>
+        s.participant?.clerkId === userId ||
+        (s.participants || []).some((p) => p?.clerkId === userId)
+    ).length;
 
     // Streak: consecutive days up to today where user had at least one session
     const dateSet = new Set(
@@ -1022,7 +1018,13 @@ function DashboardPage() {
             Activity
           </div>
           <div className="anim-4">
-            <Heatmap sessions={[...recentSessions, ...activeSessions]} />
+            <Heatmap sessions={[...recentSessions, ...activeSessions].filter(
+              (s) => s && (
+                s.host?.clerkId === user?.id ||
+                s.participant?.clerkId === user?.id ||
+                (s.participants || []).some((p) => p?.clerkId === user?.id)
+              )
+            )} />
           </div>
 
           {/* ═══════  SESSIONS (Active + Recent)  ═══════ */}
