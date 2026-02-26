@@ -43,6 +43,7 @@ import {
   HostNotificationPanel,
   FocusModeStyles,
 } from "../components/FocusMode";
+import HostControlPanel from "../components/HostControlPanel";
 
 /* ─────────────── Difficulty colour map ─────────────── */
 const DIFF_STYLES = {
@@ -108,7 +109,10 @@ function SessionPage() {
 
   const session = sessionData?.session;
   const isHost = session?.host?.clerkId === user?.id;
-  const isParticipant = session?.participant?.clerkId === user?.id;
+  const isParticipant =
+    session?.participant?.clerkId === user?.id ||
+    session?.participants?.some((p) => p.clerkId === user?.id) ||
+    false;
 
   const { call, channel, chatClient, isInitializingCall, streamClient } =
     useStreamClient(session, loadingSession, isHost, isParticipant);
@@ -239,6 +243,21 @@ function SessionPage() {
     if (isHost || isParticipant) return;
     joinSessionMutation.mutate(id, { onSuccess: refetch });
   }, [session, user, loadingSession, isHost, isParticipant, id]);
+
+  // Listen for real-time problem changes from host
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket) return;
+    const handleProblemUpdated = () => {
+      refetch();
+    };
+    socket.on("problem-updated", handleProblemUpdated);
+    socket.on("problemlist-updated", handleProblemUpdated);
+    return () => {
+      socket.off("problem-updated", handleProblemUpdated);
+      socket.off("problemlist-updated", handleProblemUpdated);
+    };
+  }, [socketRef, refetch]);
 
   useEffect(() => {
     if (!session || loadingSession) return;
@@ -788,13 +807,18 @@ function SessionPage() {
             <div className="topbar-participants">
               <span className="live-dot" />
               <UsersIcon size={12} />
-              <span>{session?.participant ? 2 : 1}/2</span>
+              <span>
+                {1 + (session?.participants?.length || (session?.participant ? 1 : 0))}
+                /{session?.maxParticipants || 2}
+              </span>
               {session?.host?.name && (
                 <span style={{ color: "rgba(232,234,240,.35)", marginLeft: 4 }}>
                   — {session.host.name}
-                  {session?.participant?.name
-                    ? `, ${session.participant.name}`
-                    : ""}
+                  {session?.participants?.length
+                    ? session.participants.map((p) => `, ${p.name}`).join("")
+                    : session?.participant?.name
+                      ? `, ${session.participant.name}`
+                      : ""}
                 </span>
               )}
             </div>
@@ -859,6 +883,16 @@ function SessionPage() {
                       </button>
                     </div>
 
+                    {/* Host Control Panel */}
+                    <div style={{ padding: "10px 12px 0", flexShrink: 0 }}>
+                      <HostControlPanel
+                        session={session}
+                        isHost={isHost}
+                        onProblemChange={() => refetch()}
+                        socketRef={socketRef}
+                      />
+                    </div>
+
                     {/* Tab content */}
                     {leftTab === "notes" ? (
                       <div style={{ flex: 1, overflow: "hidden" }}>
@@ -905,7 +939,8 @@ function SessionPage() {
                         </span>
                         <span className="prob-meta-item">
                           <UsersIcon size={11} />
-                          {session?.participant ? 2 : 1}/2 participants
+                          {1 + (session?.participants?.length || (session?.participant ? 1 : 0))}
+                          /{session?.maxParticipants || 2} participants
                         </span>
                       </div>
                     </div>

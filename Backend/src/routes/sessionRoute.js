@@ -8,6 +8,8 @@ import {
   getSessionById,
   joinSession,
   saveCode,
+  changeProblem,
+  updateProblemList,
 } from "../controllers/sessionController.js";
 import { recordFocusEvent } from "../controllers/focusController.js";
 
@@ -22,5 +24,7 @@ router.post("/:id/join", protectRoute, joinSession);
 router.post("/:id/end", protectRoute, endSession);
 router.post("/:id/save-code", protectRoute, saveCode);
 router.post("/:id/focus-event", protectRoute, recordFocusEvent);
+router.post("/:id/change-problem", protectRoute, changeProblem);
+router.post("/:id/update-problem-list", protectRoute, updateProblemList);
 
 export default router;

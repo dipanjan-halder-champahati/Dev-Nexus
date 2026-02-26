@@ -55,7 +55,9 @@ function DifficultyPill({ difficulty }) {
 }
 
 function SessionRow({ session, isUserInSession, index }) {
-  const isFull = session.participant && !isUserInSession(session);
+  const maxP = session.maxParticipants || 2;
+  const currentCount = 1 + (session.participants?.length || (session.participant ? 1 : 0));
+  const isFull = currentCount >= maxP && !isUserInSession(session);
 
   return (
     <div
@@ -131,7 +133,7 @@ function SessionRow({ session, isUserInSession, index }) {
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <UsersIcon size={12} color="#94a3b8" />
             <span style={{ fontSize: 12, color: "#94a3b8" }}>
-              {session.participant ? "2" : "1"}/2
+              {currentCount}/{maxP}
             </span>
           </div>
           <span

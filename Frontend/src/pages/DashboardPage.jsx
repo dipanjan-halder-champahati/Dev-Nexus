@@ -242,7 +242,7 @@ function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useUser();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [roomConfig, setRoomConfig] = useState({ problem: "", difficulty: "", name: "", language: "javascript", visibility: "private" });
+  const [roomConfig, setRoomConfig] = useState({ problem: "", difficulty: "", name: "", language: "javascript", visibility: "private", maxParticipants: 2, problemList: [] });
   const [joinCode, setJoinCode] = useState("");
 
   const createSessionMutation = useCreateSession();
@@ -261,7 +261,7 @@ function DashboardPage() {
       e.stopPropagation();
       e.preventDefault();
     }
-    setRoomConfig({ problem: "", difficulty: "", name: "", language: "javascript", visibility: "private" });
+    setRoomConfig({ problem: "", difficulty: "", name: "", language: "javascript", visibility: "private", maxParticipants: 2, problemList: [] });
     setShowCreateModal(true);
   };
 
@@ -274,6 +274,8 @@ function DashboardPage() {
         name: roomConfig.name || '',
         language: roomConfig.language || 'javascript',
         visibility: roomConfig.visibility || 'private',
+        maxParticipants: roomConfig.maxParticipants || 2,
+        problemList: roomConfig.problemList || [{ title: roomConfig.problem, difficulty: roomConfig.difficulty.toLowerCase() }],
       },
       {
         onSuccess: (data) => {
@@ -288,7 +290,8 @@ function DashboardPage() {
     if (!user?.id) return false;
     return (
       session.host?.clerkId === user.id ||
-      session.participant?.clerkId === user.id
+      session.participant?.clerkId === user.id ||
+      session.participants?.some((p) => p.clerkId === user.id)
     );
   };
 

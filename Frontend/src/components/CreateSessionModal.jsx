@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Code2Icon,
@@ -10,6 +10,7 @@ import {
   GlobeIcon,
   LockIcon,
   FlameIcon,
+  CheckIcon,
 } from "lucide-react";
 import { PROBLEMS, LANGUAGE_CONFIG } from "../data/problems";
 
@@ -28,9 +29,13 @@ function CreateSessionModal({
   isCreating,
 }) {
   const problems = Object.values(PROBLEMS);
-  const selectedProblem = problems.find((p) => p.title === roomConfig.problem);
+  const selectedProblems = (roomConfig.problemList || [])
+    .map((pl) => problems.find((p) => p.title === (pl.title || pl)))
+    .filter(Boolean);
+  const primaryProblem = selectedProblems[0] || null;
   const overlayRef = useRef(null);
   const boxRef = useRef(null);
+  const [problemDropdownOpen, setProblemDropdownOpen] = useState(false);
 
   // Close on Escape key
   useEffect(() => {
@@ -390,10 +395,10 @@ function CreateSessionModal({
             />
           </div>
 
-          {/* ─── Problem selector ─── */}
+          {/* ─── Problem selector (multi-select) ─── */}
           <div style={{ marginBottom: 20 }}>
             <div className="csm-field-label">
-              <span className="csm-label-text">Select Problem</span>
+              <span className="csm-label-text">Select Problems</span>
               <span
                 className="csm-label-badge"
                 style={{ color: "#ef4444", background: "rgba(239,68,68,0.08)" }}
@@ -401,28 +406,109 @@ function CreateSessionModal({
                 Required
               </span>
             </div>
+
+            {/* Selected problem chips */}
+            {selectedProblems.length > 0 && (
+              <div style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                marginBottom: 10,
+              }}>
+                {selectedProblems.map((p, idx) => (
+                  <span
+                    key={p.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "5px 10px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: idx === 0 ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${idx === 0 ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.08)"}`,
+                      color: idx === 0 ? "#a5b4fc" : "#94a3b8",
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background:
+                          difficultyColors[p.difficulty?.toLowerCase()] || "#94a3b8",
+                        flexShrink: 0,
+                      }}
+                    />
+                    {p.title}
+                    {idx === 0 && (
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 800,
+                        letterSpacing: "0.06em",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        background: "rgba(34,197,94,0.12)",
+                        color: "#34d399",
+                        textTransform: "uppercase",
+                      }}>
+                        Primary
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newList = (roomConfig.problemList || []).filter(
+                          (pl) => (pl.title || pl) !== p.title
+                        );
+                        const newPrimary = newList[0]
+                          ? problems.find((pr) => pr.title === (newList[0].title || newList[0]))
+                          : null;
+                        setRoomConfig((prev) => ({
+                          ...prev,
+                          problemList: newList,
+                          problem: newPrimary?.title || "",
+                          difficulty: newPrimary?.difficulty || "",
+                        }));
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#64748b",
+                        cursor: "pointer",
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        transition: "color 0.15s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "#f87171")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "#64748b")}
+                    >
+                      <XIcon size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Dropdown toggle */}
             <div style={{ position: "relative" }}>
-              <select
+              <button
+                type="button"
                 className="csm-select"
-                value={roomConfig.problem}
-                onChange={(e) => {
-                  const sel = problems.find((p) => p.title === e.target.value);
-                  setRoomConfig((prev) => ({
-                    ...prev,
-                    difficulty: sel?.difficulty || "",
-                    problem: e.target.value,
-                  }));
+                onClick={() => setProblemDropdownOpen(!problemDropdownOpen)}
+                style={{
+                  textAlign: "left",
+                  cursor: "pointer",
+                  color: selectedProblems.length > 0 ? "#64748b" : "#334155",
                 }}
               >
-                <option value="" disabled>
-                  Choose a coding problem...
-                </option>
-                {problems.map((problem) => (
-                  <option key={problem.id} value={problem.title}>
-                    {problem.title} · {problem.difficulty}
-                  </option>
-                ))}
-              </select>
+                {selectedProblems.length === 0
+                  ? "Choose coding problems..."
+                  : `${selectedProblems.length} problem${selectedProblems.length > 1 ? "s" : ""} selected — click to add more`}
+              </button>
               <ChevronDownIcon
                 size={16}
                 color="#64748b"
@@ -430,10 +516,130 @@ function CreateSessionModal({
                   position: "absolute",
                   right: 14,
                   top: "50%",
-                  transform: "translateY(-50%)",
+                  transform: `translateY(-50%) rotate(${problemDropdownOpen ? 180 : 0}deg)`,
                   pointerEvents: "none",
+                  transition: "transform 0.2s",
                 }}
               />
+
+              {/* Dropdown list */}
+              {problemDropdownOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    right: 0,
+                    maxHeight: 240,
+                    overflowY: "auto",
+                    background: "#0f1117",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 12,
+                    padding: 4,
+                    zIndex: 20,
+                    boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {problems.map((problem) => {
+                    const isSelected = selectedProblems.some((s) => s.id === problem.id);
+                    return (
+                      <button
+                        key={problem.id}
+                        type="button"
+                        onClick={() => {
+                          let newList;
+                          if (isSelected) {
+                            newList = (roomConfig.problemList || []).filter(
+                              (pl) => (pl.title || pl) !== problem.title
+                            );
+                          } else {
+                            newList = [
+                              ...(roomConfig.problemList || []),
+                              { title: problem.title, difficulty: problem.difficulty.toLowerCase() },
+                            ];
+                          }
+                          const newPrimary = newList[0]
+                            ? problems.find((pr) => pr.title === (newList[0].title || newList[0]))
+                            : null;
+                          setRoomConfig((prev) => ({
+                            ...prev,
+                            problemList: newList,
+                            problem: newPrimary?.title || "",
+                            difficulty: newPrimary?.difficulty || "",
+                          }));
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          width: "100%",
+                          padding: "10px 12px",
+                          border: "none",
+                          borderRadius: 8,
+                          background: isSelected ? "rgba(99,102,241,0.1)" : "transparent",
+                          color: isSelected ? "#c7d2fe" : "#94a3b8",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          textAlign: "left",
+                          transition: "all 0.15s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = "transparent";
+                        }}
+                      >
+                        {/* Checkbox indicator */}
+                        <span
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: 5,
+                            border: `1.5px solid ${isSelected ? "#6366f1" : "rgba(255,255,255,0.12)"}`,
+                            background: isSelected ? "rgba(99,102,241,0.2)" : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          {isSelected && <CheckIcon size={11} color="#a5b4fc" strokeWidth={3} />}
+                        </span>
+                        {/* Difficulty dot */}
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background:
+                              difficultyColors[problem.difficulty?.toLowerCase()] || "#94a3b8",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {problem.title}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color:
+                              difficultyColors[problem.difficulty?.toLowerCase()] || "#64748b",
+                            textTransform: "capitalize",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }}
+                        >
+                          {problem.difficulty}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -502,8 +708,36 @@ function CreateSessionModal({
             </div>
           </div>
 
+          {/* ─── Room Size (Max Participants) ─── */}
+          <div style={{ marginBottom: 22 }}>
+            <div className="csm-field-label">
+              <span className="csm-label-text">Room Size</span>
+              <span
+                className="csm-label-badge"
+                style={{ color: "#475569", background: "rgba(255,255,255,0.04)" }}
+              >
+                Max participants
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[2, 3, 5, 10].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`csm-vis-opt${(roomConfig.maxParticipants || 2) === n ? " csm-active" : ""}`}
+                  onClick={() =>
+                    setRoomConfig((prev) => ({ ...prev, maxParticipants: n }))
+                  }
+                  style={{ flex: 1, padding: "10px 0", minWidth: 0 }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* ─── Summary card ─── */}
-          {selectedProblem && (
+          {selectedProblems.length > 0 && (
             <div className="csm-summary" style={{ gap: 14 }}>
               <div
                 style={{
@@ -539,35 +773,38 @@ function CreateSessionModal({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {roomConfig.name || selectedProblem.title}
+                    {roomConfig.name || primaryProblem?.title || "Session"}
                   </span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color:
-                        difficultyColors[selectedProblem.difficulty?.toLowerCase()] ||
-                        "#94a3b8",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.08em",
-                      padding: "2px 7px",
-                      borderRadius: 5,
-                      background:
-                        selectedProblem.difficulty?.toLowerCase() === "easy"
-                          ? "rgba(34,197,94,0.1)"
-                          : selectedProblem.difficulty?.toLowerCase() === "medium"
-                          ? "rgba(245,158,11,0.1)"
-                          : "rgba(239,68,68,0.1)",
-                    }}
-                  >
-                    {selectedProblem.difficulty}
-                  </span>
+                  {primaryProblem && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color:
+                          difficultyColors[primaryProblem.difficulty?.toLowerCase()] ||
+                          "#94a3b8",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        padding: "2px 7px",
+                        borderRadius: 5,
+                        background:
+                          primaryProblem.difficulty?.toLowerCase() === "easy"
+                            ? "rgba(34,197,94,0.1)"
+                            : primaryProblem.difficulty?.toLowerCase() === "medium"
+                            ? "rgba(245,158,11,0.1)"
+                            : "rgba(239,68,68,0.1)",
+                      }}
+                    >
+                      {primaryProblem.difficulty}
+                    </span>
+                  )}
                 </div>
                 <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
-                  {LANGUAGE_CONFIG[roomConfig.language || "javascript"]?.name || "JavaScript"}{" "}
+                  {selectedProblems.length} problem{selectedProblems.length > 1 ? "s" : ""}{" "}
+                  · {LANGUAGE_CONFIG[roomConfig.language || "javascript"]?.name || "JavaScript"}{" "}
                   · {(roomConfig.visibility || "private") === "private" ? "Private" : "Public"}{" "}
-                  · Max 2 participants
+                  · Max {roomConfig.maxParticipants || 2} participants
                 </p>
               </div>
             </div>
@@ -592,7 +829,7 @@ function CreateSessionModal({
             <button
               className="csm-create-btn"
               onClick={onCreateRoom}
-              disabled={isCreating || !roomConfig.problem}
+              disabled={isCreating || !roomConfig.problem || (roomConfig.problemList || []).length === 0}
               type="button"
             >
               {isCreating ? (

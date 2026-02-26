@@ -15,6 +15,13 @@ const sessionSchema = new mongoose.Schema(
       enum: ['easy', 'medium', 'hard'],
       required: true,
     },
+    // Full list of problems selected for this session
+    problemList: [
+      {
+        title: { type: String, required: true },
+        difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
+      },
+    ],
     language: {
       type: String,
       enum: ['javascript', 'python', 'java'],
@@ -25,16 +32,30 @@ const sessionSchema = new mongoose.Schema(
       enum: ['private', 'public'],
       default: 'private',
     },
+    maxParticipants: {
+      type: Number,
+      default: 2,
+      min: 2,
+      max: 10,
+    },
     host: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
+    // Legacy single-participant field kept for backward compat
     participant: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
+    // Multi-participant list (does NOT include host)
+    participants: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     callId: {
       type: String,
       required: true,
